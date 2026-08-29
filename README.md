@@ -5,7 +5,7 @@ archivo y obtienes un enlace autocontenido. No hay servidor, ni base de datos, n
 almacenamiento: la imagen viaja codificada en el fragmento (`#`) del enlace, que el
 navegador nunca envía al servidor.
 
-👉 https://jgermade.github.io/svgshare/
+👉 https://svgshare.github.io/
 
 ## Cómo funciona
 
@@ -94,7 +94,7 @@ reales; si Google no responde con cabeceras CORS ahí, el visor necesitaría otr
 Las tarjetas de Telegram, WhatsApp o Slack son **fijas** y no pueden mostrar el nombre
 del archivo compartido. El motivo es el mismo que hace que la app no necesite servidor:
 el fragmento `#` no se envía en la petición HTTP, así que el rastreador solo recibe
-`https://jgermade.github.io/svgshare/` — sin imagen y sin `n=` —, y tampoco ejecuta el
+`https://svgshare.github.io/` — sin imagen y sin `n=` —, y tampoco ejecuta el
 JavaScript que pone el título en el visor.
 
 Por eso hay etiquetas Open Graph estáticas y una imagen de tarjeta (`og.jpg`, 1200×630):
@@ -126,17 +126,42 @@ assets/inflate.js   # DEFLATE en JS como respaldo de DecompressionStream
 assets/drive.js     # carril de Google Drive (OAuth, subida, lectura pública)
 assets/config.js    # credenciales de Google; vacío = carril desactivado
 og.jpg              # imagen de la tarjeta de previsualización
-.github/workflows/deploy.yml
+test/               # suites de Playwright
+.github/workflows/  # deploy a Pages y ejecución de los tests
 ```
 
 ## Desarrollo
 
-No hay build ni dependencias; es HTML, CSS y JS estáticos:
+La web no tiene build ni dependencias; es HTML, CSS y JS estáticos:
 
 ```bash
 python3 -m http.server 8080
 # http://localhost:8080
 ```
+
+## Tests
+
+77 comprobaciones con Playwright sobre Chromium a 390 px. `package.json` existe
+solo para esto: la web sigue sirviéndose tal cual.
+
+```bash
+npm install
+npx playwright install chromium
+npm test
+```
+
+| Suite | Qué cubre |
+| --- | --- |
+| `test/creator.spec.js` | carga, saneado, optimización, medidor de longitud |
+| `test/viewer.spec.js` | decodificación `z=`/`b=`, respaldo DEFLATE en JS, errores |
+| `test/name.spec.js` | `n=` en el enlace, título, descarga, nombres hostiles |
+| `test/drive.spec.js` | el carril de Drive completo, contra endpoints simulados |
+| `test/inflate.spec.js` | `assets/inflate.js` contra `zlib.deflateRawSync`, con fuzzing |
+
+El servidor estático lo levanta la propia configuración de Playwright. Las
+pruebas de Drive simulan Google entero —incluido `assets/config.js`—, así que no
+hacen falta credenciales; a cambio, no demuestran que Google responda como se
+supone. Eso sigue pendiente de comprobar contra el servicio real.
 
 ## Despliegue
 
