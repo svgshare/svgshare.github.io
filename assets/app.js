@@ -8,6 +8,7 @@
   var Drive = self.SVGShareDrive || {
     canUpload: function () { return false; },
     canRead: function () { return false; },
+    canShorten: function () { return false; },
     isFileId: function () { return false; }
   };
 
@@ -471,8 +472,8 @@
     var token = 0;
 
     creator.hidden = false;
-    // No client id configured: the whole lane stays out of the way.
-    driveBox.hidden = !Drive.canUpload();
+    // Without both credentials the whole lane stays out of the way.
+    driveBox.hidden = !Drive.canShorten();
 
     function show(name, text) {
       current = { name: name, text: text };
@@ -521,7 +522,7 @@
         linkBadgeText.textContent = mode === 'drive' ? 'en tu Drive' : 'guardado en tu Drive';
         btnToggleMode.textContent = mode === 'drive' ? 'usar el autocontenido' : 'usar el enlace corto';
       }
-      driveBox.hidden = !Drive.canUpload() || Boolean(saved);
+      driveBox.hidden = !Drive.canShorten() || Boolean(saved);
 
       var length = url.length;
       var level = mode === 'drive' ? 'ok'
@@ -535,7 +536,7 @@
         }[level];
 
       // The lane earns its keep exactly when the fragment starts to hurt.
-      if (mode !== 'drive' && Drive.canUpload()) {
+      if (mode !== 'drive' && Drive.canShorten()) {
         driveSub.textContent = level === 'ok'
           ? 'La imagen se guarda en tu cuenta y el enlace baja a unos 70 caracteres, pese lo que pese el SVG.'
           : 'Este SVG genera un enlace largo. Guardándolo en tu Drive baja a unos 70 caracteres.';
@@ -642,7 +643,7 @@
       saved = null;
       mode = 'inline';
       linkBadge.hidden = true;
-      driveBox.hidden = !Drive.canUpload();
+      driveBox.hidden = !Drive.canShorten();
       token++;
       result.hidden = true;
       dropCard.hidden = false;

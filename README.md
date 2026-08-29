@@ -54,17 +54,32 @@ autocontenido, en cambio, *debe* seguir en el fragmento: ahí está su razón de
 
 ### Configuración
 
-Rellena `assets/config.js`; con los campos vacíos el carril no aparece y la app
-funciona como siempre.
+Hacen falta **las dos** credenciales:
 
 1. **Client ID** — Cloud console › Clients › OAuth 2.0, tipo *Web application*.
-   Añade el origen autorizado de JavaScript (`https://<tu-dominio>` y
+   Añade el origen autorizado de JavaScript (`https://svgshare.github.io` y
    `http://localhost:8080` para desarrollo). No hace falta redirect URI: Google
-   Identity Services usa una ventana emergente.
+   Identity Services usa una ventana emergente. Habilita **guardar**.
 2. **API key** — Credentials › API key, restringida por referrer HTTP al mismo
-   origen y limitada a la Drive API. La usa el visor para leer ficheros ya
-   públicos sin sesión.
+   origen y limitada a la Drive API. Habilita **leer**: es la que usa el visor
+   para abrir ficheros ya públicos sin sesión.
 3. Habilita la **Google Drive API** en el proyecto.
+
+Con solo una de las dos el carril **no aparece**, a propósito: un enlace corto
+que este mismo sitio no sabe abrir es peor que no ofrecerlo.
+
+En el despliegue los valores salen de las variables `GOOGLE_CLIENT_ID` y
+`GOOGLE_API_KEY` del repositorio (valen tanto variables como secretos), y
+`tools/write-config.js` escribe `assets/config.js` antes de publicar. Ambas son
+públicas por diseño —viajan en el navegador—, así que no son secretos que
+proteger: su seguridad viene de estar restringidas por origen. Están fuera del
+repositorio para que cada despliegue o fork use las suyas.
+
+Para desarrollo local, rellena `assets/config.js` a mano o genera el fichero:
+
+```bash
+GOOGLE_CLIENT_ID=… GOOGLE_API_KEY=… node tools/write-config.js
+```
 
 El único scope es `drive.file`, que da acceso solo a los ficheros que la propia app
 crea. Es un scope **no sensible**: no requiere verificación de Google, no muestra el
@@ -127,6 +142,7 @@ assets/drive.js     # carril de Google Drive (OAuth, subida, lectura pública)
 assets/config.js    # credenciales de Google; vacío = carril desactivado
 og.jpg              # imagen de la tarjeta de previsualización
 test/               # suites de Playwright
+tools/write-config.js  # genera config.js en el despliegue
 .github/workflows/  # deploy a Pages y ejecución de los tests
 ```
 
@@ -141,7 +157,7 @@ python3 -m http.server 8080
 
 ## Tests
 
-77 comprobaciones con Playwright sobre Chromium a 390 px. `package.json` existe
+88 comprobaciones con Playwright sobre Chromium a 390 px. `package.json` existe
 solo para esto: la web sigue sirviéndose tal cual.
 
 ```bash
@@ -157,6 +173,7 @@ npm test
 | `test/name.spec.js` | `n=` en el enlace, título, descarga, nombres hostiles |
 | `test/drive.spec.js` | el carril de Drive completo, contra endpoints simulados |
 | `test/inflate.spec.js` | `assets/inflate.js` contra `zlib.deflateRawSync`, con fuzzing |
+| `test/config.spec.js` | `tools/write-config.js`: escapado, avisos, recorte |
 
 El servidor estático lo levanta la propia configuración de Playwright. Las
 pruebas de Drive simulan Google entero —incluido `assets/config.js`—, así que no

@@ -138,6 +138,25 @@ test('sin client id el carril no aparece aunque haya API key', async ({ page }) 
   await expect(page.locator('#driveBox')).toBeHidden();
 });
 
+// Media configuración es peor que ninguna: el creador ofrecería enlaces cortos
+// que este mismo despliegue no sabe abrir.
+test('sin API key el carril no aparece aunque haya client id', async ({ page }) => {
+  await mockGoogle(page, { apiKey: '' });
+  await page.goto('/');
+  await upload(page, 'cuadrado.svg', PLAIN);
+  await expect(page.locator('#driveBox')).toBeHidden();
+});
+
+test('con media configuración el creador se comporta como sin Drive', async ({ page }) => {
+  await mockGoogle(page, { apiKey: '' });
+  await page.goto('/');
+  await upload(page, 'pesado.svg', heavySvg(1400));
+  // Ni siquiera cuando el enlace autocontenido se pone largo, que es cuando el
+  // carril se ofrecería con más motivo.
+  await expect(page.locator('#driveBox')).toBeHidden();
+  await expect(page.locator('#link')).toHaveValue(/#/);
+});
+
 test('el carril se resalta cuando el enlace autocontenido se pone largo', async ({ page }) => {
   await mockGoogle(page);
   await page.goto('/');

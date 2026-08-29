@@ -28,6 +28,15 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
+      # Las dos credenciales son públicas por diseño (viajan en el navegador);
+      # se inyectan aquí para no fijarlas en el repositorio. Se aceptan tanto
+      # como variables como secretos, según dónde se hayan dado de alta.
+      - name: Credenciales de Google
+        env:
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID || secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_API_KEY: ${{ vars.GOOGLE_API_KEY || secrets.GOOGLE_API_KEY }}
+        run: node tools/write-config.js
+
       - name: Upload site
         uses: actions/upload-pages-artifact@v3
         with:

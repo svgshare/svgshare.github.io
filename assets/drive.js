@@ -26,6 +26,10 @@
   function canUpload() { return Boolean(CONFIG.googleClientId); }
   function canRead() { return Boolean(CONFIG.googleApiKey); }
 
+  // Offering the short link only makes sense when this deployment can also
+  // serve it back: a link the viewer cannot open is worse than no link at all.
+  function canShorten() { return canUpload() && canRead(); }
+
   function isFileId(id) { return typeof id === 'string' && FILE_ID.test(id); }
 
   function fileUrl(id) { return 'https://drive.google.com/file/d/' + id + '/view'; }
@@ -177,6 +181,7 @@
   global.SVGShareDrive = {
     canUpload: canUpload,
     canRead: canRead,
+    canShorten: canShorten,
     isFileId: isFileId,
     fileUrl: fileUrl,
     getToken: getToken,
