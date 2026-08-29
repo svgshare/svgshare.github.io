@@ -31,20 +31,33 @@ scripts ni permite peticiones de red desde el SVG.
 Para navegadores sin `DecompressionStream` se incluye un decodificador DEFLATE en JS
 (`assets/inflate.js`), así que los enlaces comprimidos siguen abriéndose.
 
-## Carril de Google Drive (opcional)
+## Mi carpeta (`/account/`, opcional)
 
-Además del enlace autocontenido, la app puede guardar el SVG en el **Drive de quien
-sube la imagen** y compartir un enlace corto. La cuota es del usuario; SVGshare no
-almacena nada.
+Además del enlace autocontenido, SVGshare ofrece una **vista de carpeta** contra
+el Drive de quien la usa: una carpeta `SVGshare` en su cuenta, con los SVG que
+guarde ahí. La cuota es suya; SVGshare no almacena nada.
+
+Desde esa vista se puede subir SVG, previsualizarlos, **compartir una imagen o la
+carpeta entera** con un enlace, dejar de compartirlos, borrarlos, y ver cuánto
+espacio ocupan en la cuenta.
 
 ```
 autocontenido   …/#z=<datos>&n=<nombre>      largo, eterno, sin cuentas
-Drive           …/?d=<fileId>&n=<nombre>     ~70 caracteres, constante
+imagen          …/?d=<fileId>&n=<nombre>     ~70 caracteres, constante
+carpeta         …/account/?f=<folderId>      la carpeta, en solo lectura
 ```
 
 El enlace de Drive mide lo mismo pese lo que pese el SVG, lo que además lo hace
 apto para códigos QR. A cambio, el enlace es mortal: muere si el usuario borra el
 fichero o le retira el permiso público.
+
+La portada no guarda nada en Drive: solo enlaza a `/account/`. Ahí, sin sesión, lo
+primero es un botón de **entrar con Google**. El token vive solo en memoria, así
+que cada visita empieza pidiéndolo de nuevo — en silencio si ya hay consentimiento.
+
+Compartir la carpeta la hace pública y da un enlace a `/account/?f=…`, que
+cualquiera puede abrir sin cuenta: se ven las miniaturas y se puede entrar en cada
+imagen, pero no añadir ni borrar nada.
 
 El id va en la **query string** a propósito. Ya es la credencial —quien tiene el
 enlace puede leer el fichero—, así que no gana nada escondiéndose en el fragmento,
@@ -99,10 +112,15 @@ precisamente para no salir de esa categoría.
 
 ### Pendiente de verificar
 
-La lectura anónima —`files.get?alt=media` con API key sobre un fichero público,
-desde otro origen— está implementada y probada contra endpoints simulados, pero
-**no contra Google**. Es la primera pieza que hay que confirmar con credenciales
-reales; si Google no responde con cabeceras CORS ahí, el visor necesitaría otra vía.
+El acceso anónimo está implementado y probado contra endpoints simulados, pero
+**no contra Google**. Son dos piezas, y ambas dependen de lo mismo —que la Drive
+API responda con cabeceras CORS a una petición con API key desde otro origen—:
+
+- `files.get?alt=media`, que sostiene el visor de un enlace de imagen.
+- `files.list`, que sostiene la vista de una carpeta compartida.
+
+Es lo primero que hay que confirmar con credenciales reales. Si Google no responde
+con CORS ahí, ambas vistas necesitarían otra vía.
 
 ## Previsualización al compartir
 
@@ -135,11 +153,14 @@ La app muestra en todo momento cuántos caracteres ocupa el enlace:
 
 ```
 index.html          # creador + visor (una sola página)
+account/index.html  # vista de carpeta contra Google Drive
 assets/style.css    # estilos, mobile-first, con modo oscuro
-assets/app.js       # saneado, optimización, codificación y UI
+assets/svg.js       # saneado, optimización y codificación; compartido
+assets/app.js       # creador y visor
+assets/account.js   # vista de carpeta
 assets/inflate.js   # DEFLATE en JS como respaldo de DecompressionStream
-assets/drive.js     # carril de Google Drive (OAuth, subida, lectura pública)
-assets/config.js    # credenciales de Google; vacío = carril desactivado
+assets/drive.js     # Google Drive (OAuth, carpeta, subida, permisos, cuota)
+assets/config.js    # credenciales de Google; vacío = Drive desactivado
 og.jpg              # imagen de la tarjeta de previsualización
 test/               # suites de Playwright
 tools/write-config.js  # genera config.js en el despliegue
@@ -157,7 +178,7 @@ python3 -m http.server 8080
 
 ## Tests
 
-88 comprobaciones con Playwright sobre Chromium a 390 px. `package.json` existe
+105 comprobaciones con Playwright sobre Chromium a 390 px. `package.json` existe
 solo para esto: la web sigue sirviéndose tal cual.
 
 ```bash
@@ -171,14 +192,16 @@ npm test
 | `test/creator.spec.js` | carga, saneado, optimización, medidor de longitud |
 | `test/viewer.spec.js` | decodificación `z=`/`b=`, respaldo DEFLATE en JS, errores |
 | `test/name.spec.js` | `n=` en el enlace, título, descarga, nombres hostiles |
-| `test/drive.spec.js` | el carril de Drive completo, contra endpoints simulados |
+| `test/drive.spec.js` | el atajo de la portada y el visor de enlaces de Drive |
+| `test/account.spec.js` | la vista de carpeta entera, contra un Drive simulado con estado |
 | `test/inflate.spec.js` | `assets/inflate.js` contra `zlib.deflateRawSync`, con fuzzing |
 | `test/config.spec.js` | `tools/write-config.js`: escapado, avisos, recorte |
 
 El servidor estático lo levanta la propia configuración de Playwright. Las
-pruebas de Drive simulan Google entero —incluido `assets/config.js`—, así que no
-hacen falta credenciales; a cambio, no demuestran que Google responda como se
-supone. Eso sigue pendiente de comprobar contra el servicio real.
+pruebas de Drive simulan Google entero —incluido `assets/config.js`— con un Drive
+de mentira con estado (`test/google-mock.js`), así que no hacen falta
+credenciales; a cambio, no demuestran que Google responda como se supone. Eso
+sigue pendiente de comprobar contra el servicio real.
 
 ## Despliegue
 

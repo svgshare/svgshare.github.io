@@ -1,0 +1,423 @@
+/*
+ * Vista de carpeta: los SVG que el usuario guarda en su propio Google Drive,
+ * dentro de una carpeta «SVGshare» que esta app crea y es la única que ve.
+ *
+ * Dos modos, igual que la portada:
+ *   /account/            mi carpeta, requiere iniciar sesión
+ *   /account/?f=<id>     una carpeta compartida, anónima y de solo lectura
+ *
+ * El scope sigue siendo `drive.file`: acceso por fichero a lo que la propia app
+ * crea. No puede ver el resto del Drive del usuario ni sabe de qué cuenta se
+ * trata — no se piden `email` ni `profile` para no salir del scope no sensible.
+ */
+(function () {
+  'use strict';
+
+  var Drive = self.SVGShareDrive;
+  var S = self.SVGShare;
+  var MAX_INPUT_BYTES = 2 * 1024 * 1024;
+
+  var folderId = null;
+  var items = [];
+  var sharing = null;   // { id, kind: 'file' | 'folder', name }
+
+  /* ------------------------------------------------------------------ toast */
+
+  var toastEl = document.getElementById('toast');
+  var toastTimer;
+
+  function toast(message) {
+    toastEl.textContent = message;
+    toastEl.classList.add('is-on');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { toastEl.classList.remove('is-on'); }, 2400);
+  }
+
+  async function copyText(text) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (err) { /* sigue abajo */ }
+    var helper = document.createElement('textarea');
+    helper.value = text;
+    helper.setAttribute('readonly', '');
+    helper.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+    document.body.appendChild(helper);
+    helper.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (err) { ok = false; }
+    document.body.removeChild(helper);
+    return ok;
+  }
+
+  // Los errores de Google son para quien programa; estos son accionables.
+  function driveMessage(err) {
+    var code = err && (err.code || err.message);
+    if (code === 'auth-cancelled' || code === 'popup_closed' || code === 'popup_failed_to_open') {
+      return 'Se canceló el acceso a Google Drive';
+    }
+    if (code === 'gis-unreachable') return 'No se pudo contactar con Google';
+    if (code === 'not-configured') return 'Este SVGshare no tiene configurado Google Drive';
+    if (code === 'sharing-blocked') return 'Tu cuenta no permite compartir fuera de la organización';
+    if (err && err.status === 401) return 'La sesión de Google caducó, inténtalo otra vez';
+    if (err && err.status === 403) return 'Google rechazó la operación: ' + err.message;
+    return 'Algo falló con Drive' + (err && err.message ? ': ' + err.message : '');
+  }
+
+  /* ------------------------------------------------------------------- url */
+
+  function baseUrl() {
+    return location.origin + location.pathname.replace(/account\/(index\.html)?$/, '');
+  }
+
+  function fileLink(id, name) {
+    return baseUrl() + '?d=' + encodeURIComponent(id) +
+      (name ? '&n=' + encodeURIComponent(name) : '');
+  }
+
+  function folderLink(id) {
+    return baseUrl() + 'account/?f=' + encodeURIComponent(id);
+  }
+
+  function queryParams() {
+    var params = {};
+    location.search.replace(/^\?/, '').split('&').forEach(function (part) {
+      var eq = part.indexOf('=');
+      if (eq > 0) params[part.slice(0, eq)] = decodeURIComponent(part.slice(eq + 1));
+    });
+    return params;
+  }
+
+  /* ------------------------------------------------------------------ vista */
+
+  var grid = document.getElementById('grid');
+  var emptyNote = document.getElementById('emptyNote');
+  var folderBox = document.getElementById('folderBox');
+  var signinBox = document.getElementById('signinBox');
+
+  function show(el, on) { el.hidden = !on; }
+
+  // Cada tarjeta pinta el SVG ya saneado, en un <img data:> igual que el visor:
+  // ahí el navegador no ejecuta scripts ni deja salir peticiones de red.
+  function card(item, readOnly) {
+    var li = document.createElement('li');
+    li.className = 'tile';
+    li.dataset.id = item.id;
+
+    var figure = document.createElement('div');
+    figure.className = 'tile-art';
+    figure.dataset.bg = 'checker';
+    var img = document.createElement('img');
+    img.alt = item.name;
+    img.loading = 'lazy';
+    figure.appendChild(img);
+
+    var open = document.createElement('a');
+    open.className = 'tile-open';
+    open.href = fileLink(item.id, item.name);
+    open.appendChild(figure);
+
+    var meta = document.createElement('div');
+    meta.className = 'tile-meta';
+    var name = document.createElement('span');
+    name.className = 'tile-name';
+    name.textContent = item.name;
+    name.title = item.name;
+    var size = document.createElement('span');
+    size.className = 'tile-size';
+    size.textContent = [
+      item.size ? S.formatBytes(Number(item.size)) : null,
+      item.shared ? 'compartido' : null
+    ].filter(Boolean).join(' · ');
+    meta.appendChild(name);
+    meta.appendChild(size);
+
+    li.appendChild(open);
+    li.appendChild(meta);
+
+    if (!readOnly) {
+      var actions = document.createElement('div');
+      actions.className = 'tile-actions';
+
+      var share = document.createElement('button');
+      share.type = 'button';
+      share.className = 'linkish';
+      share.textContent = item.shared ? 'Enlace' : 'Compartir';
+      share.addEventListener('click', function () { openShare(item, 'file'); });
+
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'linkish is-danger';
+      del.textContent = 'Borrar';
+      del.addEventListener('click', function () { removeItem(item); });
+
+      actions.appendChild(share);
+      actions.appendChild(del);
+      li.appendChild(actions);
+    }
+
+    // La previsualización se pide aparte: la lista solo trae metadatos.
+    paint(item, img);
+    return li;
+  }
+
+  var readPublic = false;
+
+  function paint(item, img) {
+    var get = readPublic ? Drive.download(item.id) : Drive.fetchOwn(item.id);
+    get.then(function (text) {
+      img.src = S.dataUri(S.minify(S.sanitize(S.parseSvg(text))));
+    }).catch(function () {
+      img.closest('.tile-art').classList.add('is-broken');
+    });
+  }
+
+  function render(readOnly) {
+    grid.textContent = '';
+    items.forEach(function (item) { grid.appendChild(card(item, readOnly)); });
+    show(emptyNote, items.length === 0);
+  }
+
+  /* ------------------------------------------------------------------ cuota */
+
+  function renderQuota(q) {
+    var box = document.getElementById('quotaBox');
+    if (!q || q.limit === null) {
+      // Cuentas sin tope: la barra no diría nada.
+      document.getElementById('quotaFigure').textContent = S.formatBytes(q ? q.usage : 0) + ' en uso';
+      document.getElementById('quotaFill').style.width = '0%';
+      document.getElementById('quotaNote').textContent = 'Esta cuenta no tiene límite de espacio.';
+      show(box, true);
+      return;
+    }
+    var pct = q.limit > 0 ? Math.min(100, (q.usage / q.limit) * 100) : 0;
+    var level = pct < 75 ? 'ok' : pct < 90 ? 'warn' : 'bad';
+    document.getElementById('quotaFigure').textContent =
+      S.formatBytes(q.usage) + ' de ' + S.formatBytes(q.limit);
+    var fill = document.getElementById('quotaFill');
+    fill.style.width = pct.toFixed(1) + '%';
+    fill.style.background = 'var(--' + level + ')';
+    document.getElementById('quotaNote').textContent = pct >= 90
+      ? 'Tu Drive está casi lleno: puede que las subidas empiecen a fallar.'
+      : Math.round(pct) + '% del espacio de tu cuenta de Google.';
+    show(box, true);
+  }
+
+  /* --------------------------------------------------------------- acciones */
+
+  var shareDialog = document.getElementById('shareDialog');
+
+  function openShare(item, kind) {
+    sharing = { id: item.id, kind: kind, name: item.name };
+    var isFolder = kind === 'folder';
+    document.getElementById('shareTitle').textContent =
+      isFolder ? 'Compartir la carpeta' : 'Compartir «' + item.name + '»';
+    document.getElementById('shareNote').textContent = isFolder
+      ? 'Cualquiera con este enlace podrá ver los SVG de la carpeta, pero no añadir ni borrar nada.'
+      : 'Cualquiera con este enlace podrá ver y descargar esta imagen.';
+    document.getElementById('shareLink').value = 'Preparando…';
+    if (typeof shareDialog.showModal === 'function') shareDialog.showModal();
+    else shareDialog.setAttribute('open', '');
+
+    Drive.publish(item.id).then(function () {
+      document.getElementById('shareLink').value =
+        isFolder ? folderLink(item.id) : fileLink(item.id, item.name);
+      item.shared = true;
+      if (!isFolder) refreshTile(item);
+    }).catch(function (err) {
+      document.getElementById('shareLink').value = '';
+      toast(driveMessage(err));
+      shareDialog.close();
+    });
+  }
+
+  function refreshTile(item) {
+    var li = grid.querySelector('[data-id="' + item.id + '"]');
+    if (!li) return;
+    var btn = li.querySelector('.tile-actions .linkish');
+    if (btn) btn.textContent = item.shared ? 'Enlace' : 'Compartir';
+    var size = li.querySelector('.tile-size');
+    if (size) {
+      size.textContent = [
+        item.size ? S.formatBytes(Number(item.size)) : null,
+        item.shared ? 'compartido' : null
+      ].filter(Boolean).join(' · ');
+    }
+  }
+
+  function removeItem(item) {
+    if (!confirm('¿Borrar «' + item.name + '» de tu Drive? No se puede deshacer.')) return;
+    Drive.remove(item.id).then(function () {
+      items = items.filter(function (x) { return x.id !== item.id; });
+      render(false);
+      toast('Borrado');
+      Drive.quota().then(renderQuota).catch(function () {});
+    }).catch(function (err) { toast(driveMessage(err)); });
+  }
+
+  function uploadFiles(files) {
+    var list = Array.prototype.slice.call(files).filter(function (file) {
+      var isSvg = /image\/svg\+xml/.test(file.type) || /\.svgz?$/i.test(file.name);
+      if (!isSvg) toast('«' + file.name + '» no es un SVG');
+      else if (file.size > MAX_INPUT_BYTES) toast('«' + file.name + '» pasa de 2 MB');
+      else return true;
+      return false;
+    });
+    if (!list.length) return;
+
+    toast(list.length === 1 ? 'Subiendo…' : 'Subiendo ' + list.length + ' archivos…');
+    // En serie: son subidas del usuario, no hay prisa, y así un fallo no deja
+    // media docena de peticiones colgando.
+    list.reduce(function (chain, file) {
+      return chain.then(function () {
+        return file.text().then(function (text) {
+          // Se sanea antes de subir: lo que se guarda ya está limpio.
+          var clean = S.minify(S.sanitize(S.parseSvg(text)));
+          return Drive.upload(file.name, clean, folderId);
+        });
+      });
+    }, Promise.resolve()).then(function () {
+      toast('Listo');
+      return reload();
+    }).catch(function (err) {
+      toast(driveMessage(err));
+      return reload();
+    });
+  }
+
+  function reload() {
+    return Drive.listFolder(folderId).then(function (files) {
+      items = files.filter(function (f) { return f.mimeType !== 'application/vnd.google-apps.folder'; });
+      render(false);
+      return Drive.quota().then(renderQuota).catch(function () {});
+    });
+  }
+
+  /* ------------------------------------------------------------- arranque */
+
+  function startOwn() {
+    show(signinBox, false);
+    show(folderBox, true);
+
+    Drive.ensureFolder().then(function (id) {
+      folderId = id;
+      return reload();
+    }).catch(function (err) {
+      show(folderBox, false);
+      show(signinBox, true);
+      var error = document.getElementById('signinError');
+      error.textContent = driveMessage(err);
+      error.hidden = false;
+    });
+  }
+
+  function startSignin() {
+    show(signinBox, true);
+    document.getElementById('btnSignin').addEventListener('click', function () {
+      var btn = document.getElementById('btnSignin');
+      btn.disabled = true;
+      Drive.getToken(true).then(function () {
+        startOwn();
+      }).catch(function (err) {
+        var error = document.getElementById('signinError');
+        error.textContent = driveMessage(err);
+        error.hidden = false;
+      }).finally(function () { btn.disabled = false; });
+    });
+  }
+
+  // Carpeta ajena: sin sesión, solo lectura, con API key.
+  function startShared(id) {
+    readPublic = true;
+    document.getElementById('folderTitle').textContent = 'Carpeta compartida';
+    document.getElementById('folderSub').textContent = 'Una selección de SVG compartida con un enlace.';
+    document.getElementById('uploadCard').hidden = true;
+    show(folderBox, true);
+
+    Drive.listPublic(id).then(function (files) {
+      items = files.filter(function (f) { return f.mimeType !== 'application/vnd.google-apps.folder'; });
+      render(true);
+    }).catch(function (err) {
+      emptyNote.textContent = err && err.message === 'not-configured'
+        ? 'Este SVGshare no tiene configurada la lectura de Google Drive.'
+        : 'No se pudo abrir la carpeta. Puede que ya no exista o que haya dejado de ser pública.';
+      show(emptyNote, true);
+    });
+  }
+
+  /* ------------------------------------------------------------- conexiones */
+
+  document.getElementById('file').addEventListener('change', function (event) {
+    uploadFiles(event.target.files);
+    event.target.value = '';
+  });
+
+  ['dragenter', 'dragover'].forEach(function (type) {
+    window.addEventListener(type, function (event) {
+      event.preventDefault();
+      var drop = document.getElementById('drop');
+      if (drop) drop.classList.add('is-over');
+    });
+  });
+  ['dragleave', 'drop'].forEach(function (type) {
+    window.addEventListener(type, function (event) {
+      event.preventDefault();
+      var drop = document.getElementById('drop');
+      if (drop) drop.classList.remove('is-over');
+    });
+  });
+  window.addEventListener('drop', function (event) {
+    var files = event.dataTransfer && event.dataTransfer.files;
+    if (files && files.length && folderId) uploadFiles(files);
+  });
+
+  document.getElementById('btnRefresh').addEventListener('click', function () {
+    if (folderId) reload().catch(function (err) { toast(driveMessage(err)); });
+  });
+
+  document.getElementById('btnShareFolder').addEventListener('click', function () {
+    if (folderId) openShare({ id: folderId, name: Drive.folderName }, 'folder');
+  });
+
+  shareDialog.addEventListener('click', function (event) {
+    if (event.target.closest('[data-close-dialog]')) shareDialog.close();
+  });
+
+  document.getElementById('btnCopyShare').addEventListener('click', async function () {
+    var value = document.getElementById('shareLink').value;
+    toast(await copyText(value) ? '¡Enlace copiado!' : 'No se pudo copiar');
+  });
+
+  document.getElementById('btnUnshare').addEventListener('click', function () {
+    if (!sharing) return;
+    Drive.unpublish(sharing.id).then(function () {
+      var item = items.filter(function (x) { return x.id === sharing.id; })[0];
+      if (item) { item.shared = false; refreshTile(item); }
+      shareDialog.close();
+      toast('Ya no se comparte');
+    }).catch(function (err) { toast(driveMessage(err)); });
+  });
+
+  /* ------------------------------------------------------------- bootstrap */
+
+  var params = queryParams();
+
+  if (params.f !== undefined) {
+    if (!Drive.isFileId(params.f)) {
+      show(document.getElementById('offBox'), true);
+    } else {
+      startShared(params.f);
+    }
+  } else if (!Drive.canShorten()) {
+    show(document.getElementById('offBox'), true);
+  } else {
+    // Con consentimiento previo Google devuelve el token sin abrir ventana, así
+    // que la sesión sobrevive a una recarga sin haber guardado nada en disco.
+    Drive.getToken(false).then(function (token) {
+      if (token) startOwn();
+      else startSignin();
+    }).catch(function () { startSignin(); });
+  }
+})();

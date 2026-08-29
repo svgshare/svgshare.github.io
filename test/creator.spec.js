@@ -105,6 +105,51 @@ test('el contador de caracteres coincide con el enlace', async ({ page }) => {
   expect(label).toBe(`${link.length.toLocaleString('es-ES')} caracteres`);
 });
 
+/* --------------------------------------------------- proporción de la caja */
+
+// Antes la caja tenía alto fijo y `overflow: hidden`: un SVG alto se renderizaba
+// a su tamaño natural y se veía recortado.
+const RATIOS = {
+  'alto (100×1000)': ['<svg xmlns="http://www.w3.org/2000/svg" width="100" height="1000" viewBox="0 0 100 1000"><rect width="100" height="1000" fill="#6d4aff"/></svg>', 0.1],
+  'apaisado (1000×100)': ['<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="100" viewBox="0 0 1000 100"><rect width="1000" height="100" fill="#0a0"/></svg>', 10],
+  'solo viewBox': ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 1000"><rect width="100" height="1000" fill="#f60"/></svg>', 0.1],
+  'medidas en porcentaje': ['<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 100 1000"><rect width="100" height="1000" fill="#09c"/></svg>', 0.1]
+};
+
+for (const [nombre, [svg, ratio]] of Object.entries(RATIOS)) {
+  test(`la vista previa no recorta un SVG ${nombre}`, async ({ page }) => {
+    await paste(page, svg);
+
+    const m = await page.evaluate(() => {
+      const img = document.getElementById('previewImg');
+      const box = document.getElementById('preview');
+      const r = img.getBoundingClientRect();
+      const b = box.getBoundingClientRect();
+      return {
+        img: { w: r.width, h: r.height },
+        box: { w: b.width, h: b.height },
+        page: document.documentElement.scrollWidth,
+        viewport: window.innerWidth
+      };
+    });
+
+    // La imagen cabe entera: nada que `overflow: hidden` pueda cortar.
+    expect(m.img.w).toBeLessThanOrEqual(m.box.w + 1);
+    expect(m.img.h).toBeLessThanOrEqual(m.box.h + 1);
+    // Y conserva su proporción, sin deformarse para encajar.
+    expect(m.img.w / m.img.h).toBeCloseTo(ratio, 1);
+    // La caja tampoco se sale de la página.
+    expect(m.box.w).toBeLessThanOrEqual(m.viewport);
+    expect(m.page).toBeLessThanOrEqual(m.viewport);
+  });
+}
+
+test('la caja adopta la proporción del SVG cuando cabe', async ({ page }) => {
+  await paste(page, '<svg xmlns="http://www.w3.org/2000/svg" width="300" height="200" viewBox="0 0 300 200"><rect width="300" height="200" fill="#6d4aff"/></svg>');
+  const box = await page.locator('#preview').boundingBox();
+  expect(box.width / box.height).toBeCloseTo(1.5, 1);
+});
+
 test('un archivo que no es SVG se rechaza con aviso', async ({ page }) => {
   await page.setInputFiles('#file', {
     name: 'foto.png',

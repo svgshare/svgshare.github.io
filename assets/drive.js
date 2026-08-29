@@ -17,6 +17,11 @@
   var DRIVE = 'https://www.googleapis.com/drive/v3';
   var UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id';
   var FILE_ID = /^[A-Za-z0-9_-]{10,200}$/;
+  var FOLDER_NAME = 'SVGshare';
+  var FOLDER_MIME = 'application/vnd.google-apps.folder';
+  // El id de permiso que Drive asigna a «cualquiera con el enlace».
+  var ANYONE = 'anyoneWithLink';
+  var FIELDS = 'id,name,size,modifiedTime,shared,mimeType';
 
   var token = null;        // { value, expiresAt }
   var tokenClient = null;
@@ -103,10 +108,11 @@
   }
 
   // Single multipart/related request: metadata part + file part.
-  function upload(name, svg) {
+  function upload(name, svg, parentId) {
     return getToken(true).then(function (accessToken) {
       var boundary = 'svgshare-' + Math.random().toString(36).slice(2);
       var metadata = { name: name || 'imagen.svg', mimeType: 'image/svg+xml' };
+      if (isFileId(parentId)) metadata.parents = [parentId];
       var body =
         '--' + boundary + '\r\n' +
         'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
@@ -164,6 +170,123 @@
     });
   }
 
+  /* ------------------------------------------------------------- la carpeta */
+
+  // Una petición autenticada cualquiera. El scope drive.file limita todo esto a
+  // lo que la propia app creó, así que no hace falta filtrar por nada más.
+  function api(path, options) {
+    return getToken(true).then(function (accessToken) {
+      var opts = options || {};
+      var headers = { Authorization: 'Bearer ' + accessToken };
+      if (opts.json) headers['Content-Type'] = 'application/json';
+      return fetch(DRIVE + path, {
+        method: opts.method || 'GET',
+        headers: headers,
+        body: opts.json ? JSON.stringify(opts.json) : undefined
+      }).then(function (response) {
+        if (response.status === 204) return null;
+        return readJson(response).then(function (json) {
+          if (!response.ok) throw apiError(response, json);
+          return json;
+        });
+      });
+    });
+  }
+
+  function query(q, fields) {
+    return '?q=' + encodeURIComponent(q) +
+      '&fields=' + encodeURIComponent('files(' + (fields || FIELDS) + ')') +
+      '&orderBy=folder,modifiedTime desc&pageSize=200';
+  }
+
+  // La carpeta «SVGshare» del Drive del usuario. Con el scope drive.file la
+  // búsqueda solo ve carpetas que esta app creó, así que no puede colarse otra
+  // carpeta del usuario que se llame igual.
+  function ensureFolder() {
+    var q = "name = '" + FOLDER_NAME + "' and mimeType = '" + FOLDER_MIME +
+      "' and trashed = false";
+    return api('/files' + query(q, 'id,name')).then(function (json) {
+      var found = json && json.files && json.files[0];
+      if (found && isFileId(found.id)) return found.id;
+      return api('/files?fields=id', {
+        method: 'POST',
+        json: { name: FOLDER_NAME, mimeType: FOLDER_MIME }
+      }).then(function (created) {
+        if (!created || !isFileId(created.id)) throw new Error('bad-response');
+        return created.id;
+      });
+    });
+  }
+
+  function listFolder(folderId) {
+    if (!isFileId(folderId)) return Promise.reject(new Error('bad-id'));
+    var q = "'" + folderId + "' in parents and trashed = false";
+    return api('/files' + query(q)).then(function (json) {
+      return (json && json.files) || [];
+    });
+  }
+
+  // Lectura del contenido con sesión: no depende de que el fichero sea público.
+  function fetchOwn(fileId) {
+    if (!isFileId(fileId)) return Promise.reject(new Error('bad-id'));
+    return getToken(true).then(function (accessToken) {
+      return fetch(DRIVE + '/files/' + fileId + '?alt=media', {
+        headers: { Authorization: 'Bearer ' + accessToken }
+      }).then(function (response) {
+        if (!response.ok) {
+          return readJson(response).then(function (json) { throw apiError(response, json); });
+        }
+        return response.text();
+      });
+    });
+  }
+
+  function remove(fileId) {
+    if (!isFileId(fileId)) return Promise.reject(new Error('bad-id'));
+    return api('/files/' + fileId, { method: 'DELETE' }).then(function () { return true; });
+  }
+
+  function unpublish(fileId) {
+    if (!isFileId(fileId)) return Promise.reject(new Error('bad-id'));
+    return api('/files/' + fileId + '/permissions/' + ANYONE, { method: 'DELETE' })
+      .then(function () { return false; });
+  }
+
+  // Espacio de la cuenta. `limit` no viene en cuentas sin tope.
+  function quota() {
+    return getToken(true).then(function (accessToken) {
+      return fetch(DRIVE + '/about?fields=storageQuota', {
+        headers: { Authorization: 'Bearer ' + accessToken }
+      }).then(function (response) {
+        return readJson(response).then(function (json) {
+          if (!response.ok) throw apiError(response, json);
+          var q = (json && json.storageQuota) || {};
+          return {
+            usage: Number(q.usage) || 0,
+            usageInDrive: Number(q.usageInDrive) || 0,
+            limit: q.limit === undefined ? null : Number(q.limit)
+          };
+        });
+      });
+    });
+  }
+
+  // Listado anónimo de una carpeta pública, con API key y sin sesión. Descansa
+  // en la misma suposición que la lectura anónima de un fichero: que la Drive
+  // API responda con cabeceras CORS. Sin confirmar contra Google.
+  function listPublic(folderId) {
+    if (!isFileId(folderId)) return Promise.reject(new Error('bad-id'));
+    if (!canRead()) return Promise.reject(new Error('not-configured'));
+    var q = "'" + folderId + "' in parents and trashed = false";
+    return fetch(DRIVE + '/files' + query(q) + '&key=' + encodeURIComponent(CONFIG.googleApiKey))
+      .then(function (response) {
+        return readJson(response).then(function (json) {
+          if (!response.ok) throw apiError(response, json);
+          return (json && json.files) || [];
+        });
+      });
+  }
+
   // Read side: no session, no token. Works because the file is already public
   // and the Drive API answers cross-origin requests carrying an API key.
   function download(fileId) {
@@ -189,6 +312,14 @@
     save: save,
     upload: upload,
     publish: publish,
-    download: download
+    unpublish: unpublish,
+    download: download,
+    ensureFolder: ensureFolder,
+    listFolder: listFolder,
+    listPublic: listPublic,
+    fetchOwn: fetchOwn,
+    remove: remove,
+    quota: quota,
+    folderName: FOLDER_NAME
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);
