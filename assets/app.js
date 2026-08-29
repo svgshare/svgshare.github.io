@@ -5,6 +5,12 @@
 (function () {
   'use strict';
 
+  var Drive = self.SVGShareDrive || {
+    canUpload: function () { return false; },
+    canRead: function () { return false; },
+    isFileId: function () { return false; }
+  };
+
   var MAX_INPUT_BYTES = 2 * 1024 * 1024; // sanity limit for the source file
   var URL_OK = 8000;                     // shares well anywhere
   var URL_WARN = 32000;                  // still fine in modern browsers
@@ -239,9 +245,46 @@
     return /\.svgz?$/i.test(name) ? name : name + '.svg';
   }
 
+  function baseUrl() {
+    return location.origin + location.pathname.replace(/index\.html$/, '');
+  }
+
   function shareUrl(payload, name) {
-    var base = location.origin + location.pathname.replace(/index\.html$/, '');
-    return base + '#' + payload + (name ? '&n=' + encodeURIComponent(name) : '');
+    return baseUrl() + '#' + payload + (name ? '&n=' + encodeURIComponent(name) : '');
+  }
+
+  // The Drive lane puts the file id in the *query string* on purpose. The id is
+  // already the capability — whoever holds the link can read the file — so it
+  // gains nothing by hiding in the fragment, and being server-visible leaves the
+  // door open to an edge worker rendering per-file preview cards later.
+  function driveUrl(fileId, name) {
+    return baseUrl() + '?d=' + encodeURIComponent(fileId) +
+      (name ? '&n=' + encodeURIComponent(name) : '');
+  }
+
+  function queryParams() {
+    var params = {};
+    location.search.replace(/^\?/, '').split('&').forEach(function (part) {
+      var eq = part.indexOf('=');
+      if (eq > 0) params[part.slice(0, eq)] = part.slice(eq + 1);
+    });
+    return params;
+  }
+
+  // Google's errors are developer-facing; these are the ones a person can act on.
+  function driveMessage(err) {
+    var code = err && (err.code || err.message);
+    if (code === 'auth-cancelled' || code === 'popup_closed' || code === 'popup_failed_to_open') {
+      return 'Se canceló el acceso a Google Drive';
+    }
+    if (code === 'gis-unreachable') return 'No se pudo contactar con Google';
+    if (code === 'not-configured') return 'Este SVGshare no tiene configurado Google Drive';
+    if (code === 'sharing-blocked') {
+      return 'Tu cuenta no permite compartir fuera de la organización';
+    }
+    if (err && err.status === 401) return 'La sesión de Google caducó, inténtalo otra vez';
+    if (err && err.status === 403) return 'Google rechazó la operación: ' + err.message;
+    return 'No se pudo guardar en Drive' + (err && err.message ? ': ' + err.message : '');
   }
 
   /* ----------------------------------------------------------------- toast */
@@ -290,6 +333,18 @@
 
   /* ----------------------------------------------------------------- viewer */
 
+  // Either lane ends up here with the SVG text; the Drive one just fetches it
+  // first. Everything downstream (sanitising, rendering, download) is shared.
+  function resolveSource(params) {
+    if (params.d !== undefined) {
+      var id = decodeURIComponent(params.d);
+      if (!Drive.isFileId(id)) return Promise.reject(new Error('bad-id'));
+      if (!Drive.canRead()) return Promise.reject(new Error('not-configured'));
+      return Drive.download(id);
+    }
+    return decodePayload(params);
+  }
+
   function startViewer(params) {
     var viewer = document.getElementById('viewer');
     var stage = document.getElementById('stage');
@@ -315,19 +370,42 @@
       document.getElementById('btnSource').disabled = true;
     }
 
-    decodePayload(params).then(function (text) {
+    resolveSource(params).then(function (text) {
       if (text === null) return fail('El enlace está dañado o incompleto.');
       try {
+        // Text fetched from Drive is as untrusted as text from the URL: it goes
+        // through exactly the same sanitiser before being rendered.
         source = minify(sanitize(parseSvg(text)));
       } catch (err) {
         return fail('El enlace está dañado o la imagen no es un SVG válido.');
       }
       img.src = dataUri(source);
     }).catch(function (err) {
-      fail(err && err.message === 'no-inflate'
+      var code = err && err.message;
+      if (params.d !== undefined) {
+        var id = decodeURIComponent(params.d);
+        fail(code === 'not-configured'
+          ? 'Este SVGshare no tiene configurada la lectura de Google Drive.'
+          : 'No se pudo cargar la imagen desde Google Drive. Puede que ya no exista o que haya dejado de ser pública.');
+        if (Drive.isFileId(id)) offerDriveLink(id);
+        return;
+      }
+      fail(code === 'no-inflate'
         ? 'Tu navegador no puede descomprimir este enlace. Prueba con uno más reciente.'
         : 'El enlace está dañado o incompleto.');
     });
+
+    // When the fetch fails the file may still be reachable from Drive itself,
+    // so hand the reader that door instead of a dead end.
+    function offerDriveLink(id) {
+      var link = document.createElement('a');
+      link.href = Drive.fileUrl(id);
+      link.target = '_blank';
+      link.rel = 'noopener';
+      link.className = 'stage-link';
+      link.textContent = 'Abrir en Google Drive';
+      errorEl.insertAdjacentElement('afterend', link);
+    }
 
     bindBackgrounds(document.querySelector('.bg-switch'), stage);
 
@@ -379,11 +457,22 @@
     var btnOpen = document.getElementById('btnOpen');
     var btnReset = document.getElementById('btnReset');
     var optMinify = document.getElementById('optMinify');
+    var driveBox = document.getElementById('driveBox');
+    var driveSub = document.getElementById('driveSub');
+    var btnDrive = document.getElementById('btnDrive');
+    var linkBadge = document.getElementById('linkBadge');
+    var linkBadgeText = document.getElementById('linkBadgeText');
+    var btnToggleMode = document.getElementById('btnToggleMode');
 
-    var current = null; // { name, text }
+    var current = null;   // { name, text }
+    var pending = '';     // current serialised output, the bytes Drive would get
+    var saved = null;     // { id, output } once stored in Drive
+    var mode = 'inline';  // 'inline' | 'drive'
     var token = 0;
 
     creator.hidden = false;
+    // No client id configured: the whole lane stays out of the way.
+    driveBox.hidden = !Drive.canUpload();
 
     function show(name, text) {
       current = { name: name, text: text };
@@ -405,23 +494,53 @@
       var payload = await encodePayload(output);
       if (mine !== token) return;
 
-      var url = shareUrl(payload, current.name);
+      // The stored copy belongs to the bytes that were uploaded; if the source
+      // changed underneath, the short link no longer describes this image.
+      if (saved && saved.output !== output) {
+        saved = null;
+        mode = 'inline';
+        toast('El SVG ha cambiado: vuelve a guardarlo para el enlace corto');
+      }
+
+      var inline = shareUrl(payload, current.name);
+      var url = mode === 'drive' && saved ? driveUrl(saved.id, current.name) : inline;
       var bytes = encoder.encode(output).length;
       var size = dimensionsOf(output);
 
+      pending = output;
       previewImg.src = dataUri(output);
       fileNameEl.textContent = current.name;
       statsEl.textContent = [size, formatBytes(bytes)].filter(Boolean).join(' · ');
       linkEl.value = url;
       btnOpen.href = url;
+      // Once a copy exists in Drive the badge is the switch between both links,
+      // in both directions: going back to the self-contained one must not strand
+      // the short one.
+      linkBadge.hidden = !saved;
+      if (saved) {
+        linkBadgeText.textContent = mode === 'drive' ? 'en tu Drive' : 'guardado en tu Drive';
+        btnToggleMode.textContent = mode === 'drive' ? 'usar el autocontenido' : 'usar el enlace corto';
+      }
+      driveBox.hidden = !Drive.canUpload() || Boolean(saved);
 
       var length = url.length;
-      var level = length <= URL_OK ? 'ok' : length <= URL_WARN ? 'warn' : 'bad';
-      var note = {
-        ok: 'Se puede compartir en cualquier sitio.',
-        warn: 'Funciona en navegadores modernos; algunas apps de chat pueden cortarlo.',
-        bad: 'Demasiado largo: muchos navegadores y apps lo rechazarán. Simplifica el SVG.'
-      }[level];
+      var level = mode === 'drive' ? 'ok'
+        : length <= URL_OK ? 'ok' : length <= URL_WARN ? 'warn' : 'bad';
+      var note = mode === 'drive'
+        ? 'Guardado en tu Drive. Se puede compartir en cualquier sitio, incluso como QR.'
+        : {
+          ok: 'Se puede compartir en cualquier sitio.',
+          warn: 'Funciona en navegadores modernos; algunas apps de chat pueden cortarlo.',
+          bad: 'Demasiado largo: muchos navegadores y apps lo rechazarán. Simplifica el SVG.'
+        }[level];
+
+      // The lane earns its keep exactly when the fragment starts to hurt.
+      if (mode !== 'drive' && Drive.canUpload()) {
+        driveSub.textContent = level === 'ok'
+          ? 'La imagen se guarda en tu cuenta y el enlace baja a unos 70 caracteres, pese lo que pese el SVG.'
+          : 'Este SVG genera un enlace largo. Guardándolo en tu Drive baja a unos 70 caracteres.';
+        driveBox.classList.toggle('is-nudged', level !== 'ok');
+      }
 
       meterFill.style.width = Math.min(100, (length / URL_WARN) * 100).toFixed(1) + '%';
       meterFill.style.background = 'var(--' + (level === 'ok' ? 'ok' : level === 'warn' ? 'warn' : 'bad') + ')';
@@ -493,8 +612,37 @@
       });
     }
 
+    btnDrive.addEventListener('click', async function () {
+      if (!current || !pending) return;
+      var output = pending;
+      btnDrive.disabled = true;
+      btnDrive.textContent = 'Guardando…';
+      try {
+        var id = await Drive.save(current.name, output);
+        saved = { id: id, output: output };
+        mode = 'drive';
+        toast('Guardado en tu Drive');
+        render();
+      } catch (err) {
+        toast(driveMessage(err));
+      } finally {
+        btnDrive.disabled = false;
+        btnDrive.textContent = 'Guardar en mi Drive';
+      }
+    });
+
+    btnToggleMode.addEventListener('click', function () {
+      mode = mode === 'drive' ? 'inline' : 'drive';
+      render();
+    });
+
     btnReset.addEventListener('click', function () {
       current = null;
+      pending = '';
+      saved = null;
+      mode = 'inline';
+      linkBadge.hidden = true;
+      driveBox.hidden = !Drive.canUpload();
       token++;
       result.hidden = true;
       dropCard.hidden = false;
@@ -507,7 +655,9 @@
 
   /* -------------------------------------------------------------- bootstrap */
 
+  var query = queryParams();
   var hashParams = parseHash(location.hash);
-  if (hashParams.z !== undefined || hashParams.b !== undefined) startViewer(hashParams);
+  if (query.d !== undefined) startViewer({ d: query.d, n: query.n });
+  else if (hashParams.z !== undefined || hashParams.b !== undefined) startViewer(hashParams);
   else startCreator();
 })();

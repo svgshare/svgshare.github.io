@@ -250,6 +250,50 @@ main { display: flex; flex-direction: column; gap: 16px; }
   text-underline-offset: 2px;
 }
 
+/* ---------- carril de Drive ---------- */
+.drive {
+  margin-top: 14px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+  transition: border-color .2s ease, background .2s ease;
+}
+.drive.is-nudged {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.drive-copy { display: flex; flex-direction: column; gap: 4px; }
+.drive-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+}
+.drive-title svg { flex: none; }
+.drive-sub { font-size: 13px; color: var(--muted); }
+.drive .btn { width: 100%; }
+
+.badge {
+  margin-left: 8px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+.badge .linkish { font-size: 12px; }
+
+.stage-link {
+  margin-top: 12px;
+  font-size: 14px;
+  color: var(--accent);
+  text-underline-offset: 3px;
+}
+
 /* ---------- options ---------- */
 .options {
   margin-top: 14px;
