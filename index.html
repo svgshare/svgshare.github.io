@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#6d4aff">
+<title>SVGshare · comparte SVG en un enlace</title>
+<meta name="description" content="Sube un SVG y obtén un enlace que contiene la imagen dentro de la propia URL. Sin servidor, sin subidas, sin caducidad.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236d4aff'/%3E%3Cpath d='M11 21.5c1.6 1.2 3.1 1.7 4.8 1.7 2.6 0 4.2-1.2 4.2-3 0-4-8.4-2.3-8.4-7.6 0-2.6 2.2-4.3 5.4-4.3 1.6 0 3 .3 4.3 1.1' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<!-- ============ VISOR (cuando la URL trae una imagen) ============ -->
+<main id="viewer" class="viewer" hidden>
+  <div class="stage" id="stage" data-bg="checker">
+    <img id="stageImg" alt="Imagen SVG compartida">
+    <p id="stageError" class="stage-error" hidden></p>
+  </div>
+
+  <div class="viewer-bar">
+    <div class="bg-switch" role="group" aria-label="Fondo del visor">
+      <button type="button" class="chip is-active" data-bg="checker" title="Transparente">◪</button>
+      <button type="button" class="chip" data-bg="light" title="Fondo claro">☀</button>
+      <button type="button" class="chip" data-bg="dark" title="Fondo oscuro">☾</button>
+    </div>
+    <div class="viewer-actions">
+      <button type="button" class="btn btn-ghost" id="btnDownload">Descargar</button>
+      <button type="button" class="btn btn-ghost" id="btnSource">Código</button>
+      <a class="btn btn-primary" href="./" id="btnCreate">Crear el mío</a>
+    </div>
+  </div>
+
+  <dialog id="sourceDialog" class="dialog">
+    <div class="dialog-head">
+      <h2>Código SVG</h2>
+      <button type="button" class="icon-btn" data-close-dialog aria-label="Cerrar">✕</button>
+    </div>
+    <pre id="sourceCode" class="code"></pre>
+    <div class="dialog-foot">
+      <button type="button" class="btn btn-primary" id="btnCopySource">Copiar código</button>
+    </div>
+  </dialog>
+</main>
+
+<!-- ============ CREADOR ============ -->
+<div id="creator" class="wrap" hidden>
+  <header class="hero">
+    <div class="logo" aria-hidden="true">
+      <svg viewBox="0 0 32 32" width="34" height="34"><rect width="32" height="32" rx="9" fill="currentColor"/><path d="M11 21.5c1.6 1.2 3.1 1.7 4.8 1.7 2.6 0 4.2-1.2 4.2-3 0-4-8.4-2.3-8.4-7.6 0-2.6 2.2-4.3 5.4-4.3 1.6 0 3 .3 4.3 1.1" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/></svg>
+    </div>
+    <h1>SVGshare</h1>
+    <p class="tagline">Tu SVG viaja <strong>dentro del enlace</strong>. Sin servidor, sin subidas y sin caducidad.</p>
+  </header>
+
+  <main>
+    <!-- Paso 1: carga -->
+    <section class="card" id="dropCard">
+      <label class="drop" id="drop" for="file">
+        <input type="file" id="file" accept="image/svg+xml,.svg" hidden>
+        <span class="drop-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4"/><path d="m7 9 5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>
+        </span>
+        <span class="drop-title">Toca para elegir un SVG</span>
+        <span class="drop-sub">o arrástralo aquí · también puedes pegarlo (⌘/Ctrl+V)</span>
+      </label>
+      <p class="hint">Todo ocurre en tu navegador: el archivo nunca se envía a ningún sitio.</p>
+    </section>
+
+    <!-- Paso 2: resultado -->
+    <section class="card result" id="result" hidden>
+      <div class="preview" id="preview" data-bg="checker">
+        <img id="previewImg" alt="Vista previa del SVG">
+      </div>
+
+      <div class="meta">
+        <span class="filename" id="fileName">imagen.svg</span>
+        <div class="stats" id="stats"></div>
+      </div>
+
+      <div class="meter">
+        <div class="meter-bar"><i id="meterFill"></i></div>
+        <p class="meter-label" id="meterLabel"></p>
+      </div>
+
+      <label class="field">
+        <span class="field-label">Enlace para compartir</span>
+        <textarea id="link" class="link" rows="3" readonly spellcheck="false"></textarea>
+      </label>
+
+      <div class="actions">
+        <button type="button" class="btn btn-primary" id="btnCopy">Copiar enlace</button>
+        <button type="button" class="btn btn-ghost" id="btnShare" hidden>Compartir</button>
+        <a class="btn btn-ghost" id="btnOpen" target="_blank" rel="noopener">Abrir</a>
+      </div>
+
+      <div class="options">
+        <label class="switch">
+          <input type="checkbox" id="optMinify" checked>
+          <span>Optimizar el SVG (recomendado: enlaces más cortos)</span>
+        </label>
+        <button type="button" class="linkish" id="btnReset">Elegir otro archivo</button>
+      </div>
+    </section>
+
+    <section class="card how">
+      <h2>Cómo funciona</h2>
+      <ol>
+        <li>El SVG se limpia (se eliminan scripts y metadatos) y se comprime.</li>
+        <li>El resultado se codifica en base64url y se guarda tras el <code>#</code> de la URL.</li>
+        <li>Al abrir el enlace, el navegador reconstruye la imagen. El fragmento <code>#</code> nunca se envía al servidor.</li>
+      </ol>
+      <p class="hint">Consejo: cuanto más pesado sea el SVG, más largo será el enlace. Por debajo de ~8.000 caracteres funciona prácticamente en cualquier sitio.</p>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span>Hecho para compartir vectores sin fricción.</span>
+  </footer>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="assets/inflate.js" defer></script>
+<script src="assets/app.js" defer></script>
+</body>
+</html>
