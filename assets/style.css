@@ -14,7 +14,7 @@
   --bad: #d4453f;
   --radius: 16px;
   --shadow: 0 1px 2px rgb(20 20 40 / .05), 0 8px 24px -12px rgb(20 20 40 / .18);
-  --checker: #e7e7f0;
+  --checker: #f0f0f6;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -29,7 +29,7 @@
     --accent-ink: #14101f;
     --accent-soft: #241f3d;
     --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 8px 24px -12px rgb(0 0 0 / .6);
-    --checker: #23232e;
+    --checker: #1e1e28;
   }
 }
 
