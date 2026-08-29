@@ -15,7 +15,7 @@
 <meta property="og:site_name" content="SVGshare">
 <meta property="og:title" content="SVGshare">
 <meta property="og:description" content="La imagen viaja dentro del enlace. Ábrelo para verla: sin servidor, sin subidas y sin caducidad.">
-<meta property="og:image" content="https://jgermade.github.io/svgshare/og.jpg">
+<meta property="og:image" content="https://svgshare.github.io/og.jpg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta property="og:image:alt" content="SVGshare: la imagen viaja dentro del enlace">
@@ -98,10 +98,7 @@
       </div>
 
       <label class="field">
-        <span class="field-label">
-          Enlace para compartir
-          <span class="badge" id="linkBadge" hidden><span id="linkBadgeText"></span> · <button type="button" class="linkish" id="btnToggleMode"></button></span>
-        </span>
+        <span class="field-label">Enlace para compartir</span>
         <textarea id="link" class="link" rows="3" readonly spellcheck="false"></textarea>
       </label>
 
@@ -111,16 +108,16 @@
         <a class="btn btn-ghost" id="btnOpen" target="_blank" rel="noopener">Abrir</a>
       </div>
 
-      <section class="drive" id="driveBox" hidden>
+      <a class="drive" id="driveLink" href="./account/" hidden>
         <div class="drive-copy">
           <span class="drive-title">
             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="m8.4 3 7.2 12.5-3.6 6.2L4.8 9.2 8.4 3Z" fill="#4285f4"/><path d="M15.6 3H8.4l7.2 12.5H23L15.6 3Z" fill="#ffba00"/><path d="M4.8 9.2 1 15.5 4.6 21.7h14.4l3.6-6.2H8.4L4.8 9.2Z" fill="#00ac47"/></svg>
-            Enlace corto con tu Google Drive
+            Enlaces cortos con tu Google Drive
           </span>
-          <span class="drive-sub" id="driveSub">La imagen se guarda en tu cuenta y el enlace baja a unos 70 caracteres, pese lo que pese el SVG.</span>
+          <span class="drive-sub" id="driveSub">Guarda tus SVG en tu propia cuenta y compártelos con un enlace de unos 70 caracteres, pese lo que pesen.</span>
         </div>
-        <button type="button" class="btn btn-ghost" id="btnDrive">Guardar en mi Drive</button>
-      </section>
+        <span class="btn btn-ghost">Mi carpeta</span>
+      </a>
 
       <div class="options">
         <label class="switch">
@@ -151,6 +148,7 @@
 
 <script src="assets/config.js" defer></script>
 <script src="assets/inflate.js" defer></script>
+<script src="assets/svg.js" defer></script>
 <script src="assets/drive.js" defer></script>
 <script src="assets/app.js" defer></script>
 </body>

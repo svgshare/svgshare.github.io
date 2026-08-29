@@ -110,11 +110,27 @@ main { display: flex; flex-direction: column; gap: 16px; }
 .preview, .stage {
   --sq: 12px;
   border-radius: 12px;
+  /* Fila y columna explícitas: con la fila en `auto` el alto del contenido la
+     estira, el `max-height: 100%` de la imagen se vuelve cíclico y el navegador
+     lo ignora, así que un SVG alto desbordaba y `overflow: hidden` lo recortaba. */
   display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   place-items: center;
   overflow: hidden;
 }
-.preview { height: 220px; padding: 12px; border: 1px solid var(--border); }
+/* La caja toma la proporción del SVG (app.js escribe --ratio al cargarlo), así
+   que no hay franjas muertas ni recorte. Los topes evitan que un SVG con una
+   proporción extrema genere una caja interminable o invisible. */
+.preview {
+  /* El ancho manda: con `width: auto` la proporción deja que el alto derive el
+     ancho, y un SVG muy apaisado generaba una caja más ancha que la pantalla. */
+  width: 100%;
+  aspect-ratio: var(--ratio, 4 / 3);
+  max-height: 60svh;
+  min-height: 140px;
+  padding: 12px;
+  border: 1px solid var(--border);
+}
 .preview img, .stage img {
   max-width: 100%;
   max-height: 100%;
@@ -252,6 +268,10 @@ main { display: flex; flex-direction: column; gap: 16px; }
 
 /* ---------- carril de Drive ---------- */
 .drive {
+  /* Es un enlace entero, así que hay que devolverle el aspecto de tarjeta: sin
+     el subrayado ni el color que hereda todo lo que hay dentro de un <a>. */
+  text-decoration: none;
+  color: inherit;
   margin-top: 14px;
   padding: 14px;
   display: flex;
@@ -276,7 +296,8 @@ main { display: flex; flex-direction: column; gap: 16px; }
 }
 .drive-title svg { flex: none; }
 .drive-sub { font-size: 13px; color: var(--muted); }
-.drive .btn { width: 100%; }
+.drive .btn { width: 100%; text-decoration: none; }
+.drive:hover .btn { border-color: var(--muted); }
 
 .badge {
   margin-left: 8px;
@@ -465,5 +486,99 @@ main { display: flex; flex-direction: column; gap: 16px; }
   .wrap { padding-top: 48px; }
   .hero h1 { font-size: 34px; }
   .card { padding: 20px; }
-  .preview { height: 300px; }
+  .preview { max-height: 50svh; }
 }
+
+/* ---------- vista de carpeta (/account/) ---------- */
+.hero-compact { padding-bottom: 8px; }
+.hero-compact h1 { font-size: 26px; }
+.back {
+  display: inline-block;
+  margin-bottom: 10px;
+  color: var(--muted);
+  font-size: 13px;
+  text-decoration: none;
+}
+.back:hover { color: var(--fg); }
+
+.signin { display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
+.signin-copy { margin: 0; font-size: 14px; line-height: 1.5; }
+.btn-google {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  font-weight: 600;
+}
+.btn-google:hover { border-color: var(--muted); }
+
+.quota { display: flex; flex-direction: column; gap: 8px; }
+.quota-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.quota-title { font-weight: 600; font-size: 14px; }
+.quota-figure { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.quota .hint { margin: 0; }
+
+.drop-compact { padding: 20px 16px; }
+.folder-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.folder-actions .btn { flex: 1; min-width: 140px; }
+
+.empty { color: var(--muted); font-size: 14px; text-align: center; padding: 24px 0; }
+
+.grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 12px;
+}
+.tile {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.tile-open { display: block; text-decoration: none; }
+.tile-art {
+  --sq: 10px;
+  aspect-ratio: 4 / 3;
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+  padding: 10px;
+  overflow: hidden;
+}
+.tile-art img { max-width: 100%; max-height: 100%; display: block; }
+.tile-art.is-broken::after {
+  content: 'no se pudo cargar';
+  color: var(--muted);
+  font-size: 12px;
+}
+.tile-meta {
+  padding: 8px 10px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.tile-name {
+  font-size: 13px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tile-size { color: var(--muted); font-size: 12px; }
+.tile-actions {
+  display: flex;
+  gap: 12px;
+  padding: 8px 10px 10px;
+  margin-top: auto;
+}
+.linkish.is-danger { color: var(--bad); }
+
+#shareDialog .link { margin-top: 10px; }

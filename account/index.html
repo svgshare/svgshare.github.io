@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#6d4aff">
+<title>Mi carpeta · SVGshare</title>
+<meta name="description" content="Tus SVG guardados en tu propio Google Drive: compártelos con un enlace corto, bórralos y mira cuánto espacio ocupan.">
+<meta name="robots" content="noindex">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%236d4aff'/%3E%3Cpath d='M11 21.5c1.6 1.2 3.1 1.7 4.8 1.7 2.6 0 4.2-1.2 4.2-3 0-4-8.4-2.3-8.4-7.6 0-2.6 2.2-4.3 5.4-4.3 1.6 0 3 .3 4.3 1.1' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="../assets/style.css">
+</head>
+<body>
+
+<div class="wrap">
+  <header class="hero hero-compact">
+    <a class="back" href="../">← SVGshare</a>
+    <h1 id="folderTitle">Mi carpeta</h1>
+    <p class="tagline" id="folderSub">Tus SVG guardados en tu propio Google Drive.</p>
+  </header>
+
+  <main>
+    <!-- Sin credenciales en el despliegue no hay nada que enseñar -->
+    <section class="card" id="offBox" hidden>
+      <p class="hint">Este SVGshare no tiene configurado Google Drive, así que no hay
+      carpeta que mostrar. El creador de enlaces autocontenidos funciona igual.</p>
+      <a class="btn btn-primary" href="../">Volver al creador</a>
+    </section>
+
+    <!-- Paso 0: identificarse -->
+    <section class="card signin" id="signinBox" hidden>
+      <p class="signin-copy">
+        Conecta tu Google Drive para guardar aquí tus SVG. La imagen se queda en
+        <strong>tu</strong> cuenta: SVGshare no almacena nada y solo puede ver los
+        archivos que cree desde aquí.
+      </p>
+      <button type="button" class="btn btn-google" id="btnSignin">
+        <svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true"><path fill="#4285f4" d="M17.6 9.2c0-.6-.1-1.2-.2-1.8H9v3.5h4.8a4.1 4.1 0 0 1-1.8 2.7v2.2h2.9c1.7-1.6 2.7-3.9 2.7-6.6Z"/><path fill="#34a853" d="M9 18c2.4 0 4.5-.8 6-2.2l-2.9-2.2c-.8.5-1.8.9-3.1.9-2.4 0-4.4-1.6-5.1-3.8H.9v2.3A9 9 0 0 0 9 18Z"/><path fill="#fbbc04" d="M3.9 10.7a5.4 5.4 0 0 1 0-3.4V5H.9a9 9 0 0 0 0 8l3-2.3Z"/><path fill="#ea4335" d="M9 3.6c1.3 0 2.5.5 3.4 1.3l2.6-2.6A9 9 0 0 0 .9 5l3 2.3C4.6 5.2 6.6 3.6 9 3.6Z"/></svg>
+        Entrar con Google
+      </button>
+      <p class="hint" id="signinError" hidden></p>
+    </section>
+
+    <!-- Paso 1: la carpeta -->
+    <section id="folderBox" hidden>
+      <div class="card quota" id="quotaBox" hidden>
+        <div class="quota-head">
+          <span class="quota-title">Espacio de tu Drive</span>
+          <span class="quota-figure" id="quotaFigure"></span>
+        </div>
+        <div class="meter-bar"><i id="quotaFill"></i></div>
+        <p class="hint" id="quotaNote"></p>
+      </div>
+
+      <section class="card" id="uploadCard">
+        <label class="drop drop-compact" id="drop" for="file">
+          <input type="file" id="file" accept="image/svg+xml,.svg" multiple hidden>
+          <span class="drop-title">Añadir SVG a la carpeta</span>
+          <span class="drop-sub">toca para elegir, o arrastra los archivos aquí</span>
+        </label>
+        <div class="folder-actions">
+          <button type="button" class="btn btn-ghost" id="btnShareFolder">Compartir carpeta</button>
+          <button type="button" class="btn btn-ghost" id="btnRefresh">Actualizar</button>
+        </div>
+      </section>
+
+      <p class="empty" id="emptyNote" hidden>Todavía no hay nada aquí.</p>
+      <ul class="grid" id="grid"></ul>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span id="footNote">Los archivos viven en tu cuenta de Google, no en SVGshare.</span>
+  </footer>
+</div>
+
+<dialog id="shareDialog" class="dialog">
+  <div class="dialog-head">
+    <h2 id="shareTitle">Compartir</h2>
+    <button type="button" class="icon-btn" data-close-dialog aria-label="Cerrar">✕</button>
+  </div>
+  <p class="hint" id="shareNote"></p>
+  <textarea id="shareLink" class="link" rows="3" readonly spellcheck="false"></textarea>
+  <div class="dialog-foot">
+    <button type="button" class="btn btn-ghost" id="btnUnshare">Dejar de compartir</button>
+    <button type="button" class="btn btn-primary" id="btnCopyShare">Copiar enlace</button>
+  </div>
+</dialog>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<script src="../assets/config.js" defer></script>
+<script src="../assets/svg.js" defer></script>
+<script src="../assets/drive.js" defer></script>
+<script src="../assets/account.js" defer></script>
+</body>
+</html>
