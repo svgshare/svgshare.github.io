@@ -16,7 +16,13 @@ navegador nunca envía al servidor.
    de indentación.
 3. **Comprimido** con `CompressionStream('deflate-raw')` y codificado en **base64url**.
 4. El resultado se guarda en el hash: `…/#z=<datos>` (comprimido) o `…/#b=<datos>`
-   (sin comprimir, si el navegador no ofrece compresión o no ayuda).
+   (sin comprimir, si el navegador no ofrece compresión o no ayuda), seguido del
+   nombre del archivo: `…&n=mi%20logo.svg`.
+
+El nombre se usa para el título de la pestaña del visor (`SVGshare - mi logo.svg`) y
+como nombre al descargar. Llega desde la URL, así que se reduce a un único segmento de
+ruta y se recorta a 80 caracteres antes de usarlo. Los enlaces sin `n=` siguen
+funcionando.
 
 Al abrir el enlace el proceso se invierte, y la imagen se pinta mediante un
 `<img src="data:image/svg+xml;base64,…">`, contexto en el que el navegador no ejecuta

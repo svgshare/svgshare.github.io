@@ -206,17 +206,42 @@
     return 'b=' + toBase64Url(raw);
   }
 
-  async function decodePayload(hash) {
-    var match = /^#?\/?([zb])=([A-Za-z0-9\-_=]+)$/.exec(hash || '');
-    if (!match) return null;
-    var bytes = fromBase64Url(match[2]);
-    if (match[1] === 'z') bytes = await inflate(bytes);
+  // The fragment holds the image plus, optionally, the original file name:
+  //   #z=<deflate-raw+base64url>&n=<nombre.svg>
+  function parseHash(hash) {
+    var params = {};
+    (hash || '').replace(/^#\/?/, '').split('&').forEach(function (part) {
+      var eq = part.indexOf('=');
+      if (eq > 0) params[part.slice(0, eq)] = part.slice(eq + 1);
+    });
+    return params;
+  }
+
+  async function decodePayload(params) {
+    var kind = params.z !== undefined ? 'z' : params.b !== undefined ? 'b' : null;
+    if (!kind || !/^[A-Za-z0-9\-_=]+$/.test(params[kind])) return null;
+    var bytes = fromBase64Url(params[kind]);
+    if (kind === 'z') bytes = await inflate(bytes);
     return decoder.decode(bytes);
   }
 
-  function shareUrl(payload) {
+  // The name arrives from the URL, so keep it to a plain, single-segment file name.
+  function cleanName(raw) {
+    if (!raw) return '';
+    var name;
+    try { name = decodeURIComponent(raw); } catch (err) { return ''; }
+    name = name.split(/[\\/]/).pop().replace(/[\u0000-\u001f\u007f]/g, '').trim();
+    return name.slice(0, 80);
+  }
+
+  function downloadName(name) {
+    if (!name) return 'svgshare.svg';
+    return /\.svgz?$/i.test(name) ? name : name + '.svg';
+  }
+
+  function shareUrl(payload, name) {
     var base = location.origin + location.pathname.replace(/index\.html$/, '');
-    return base + '#' + payload;
+    return base + '#' + payload + (name ? '&n=' + encodeURIComponent(name) : '');
   }
 
   /* ----------------------------------------------------------------- toast */
@@ -265,7 +290,7 @@
 
   /* ----------------------------------------------------------------- viewer */
 
-  function startViewer(hash) {
+  function startViewer(params) {
     var viewer = document.getElementById('viewer');
     var stage = document.getElementById('stage');
     var img = document.getElementById('stageImg');
@@ -273,9 +298,10 @@
     var dialog = document.getElementById('sourceDialog');
     var codeEl = document.getElementById('sourceCode');
     var source = '';
+    var name = cleanName(params.n);
 
     viewer.hidden = false;
-    document.title = 'SVG compartido · SVGshare';
+    document.title = 'SVGshare - ' + (name || 'SVG compartido');
 
     function fail(message) {
       img.hidden = true;
@@ -285,7 +311,7 @@
       document.getElementById('btnSource').disabled = true;
     }
 
-    decodePayload(hash).then(function (text) {
+    decodePayload(params).then(function (text) {
       if (text === null) return fail('El enlace está dañado o incompleto.');
       try {
         source = minify(sanitize(parseSvg(text)));
@@ -306,7 +332,7 @@
       var url = URL.createObjectURL(blob);
       var anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = 'svgshare.svg';
+      anchor.download = downloadName(name);
       document.body.appendChild(anchor);
       anchor.click();
       anchor.remove();
@@ -375,7 +401,7 @@
       var payload = await encodePayload(output);
       if (mine !== token) return;
 
-      var url = shareUrl(payload);
+      var url = shareUrl(payload, current.name);
       var bytes = encoder.encode(output).length;
       var size = dimensionsOf(output);
 
@@ -477,6 +503,7 @@
 
   /* -------------------------------------------------------------- bootstrap */
 
-  if (/^#?\/?[zb]=/.test(location.hash)) startViewer(location.hash);
+  var hashParams = parseHash(location.hash);
+  if (hashParams.z !== undefined || hashParams.b !== undefined) startViewer(hashParams);
   else startCreator();
 })();
