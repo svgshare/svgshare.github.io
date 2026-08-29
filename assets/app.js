@@ -307,6 +307,10 @@
       img.hidden = true;
       errorEl.hidden = false;
       errorEl.textContent = message;
+      // Sin imagen no hay lienzo que mostrar: se devuelve el fondo al tema
+      // para que el mensaje se lea, y sobra el selector de fondo.
+      stage.removeAttribute('data-bg');
+      document.querySelector('.bg-switch').hidden = true;
       document.getElementById('btnDownload').disabled = true;
       document.getElementById('btnSource').disabled = true;
     }
