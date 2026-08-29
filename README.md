@@ -110,17 +110,21 @@ precisamente para no salir de esa categoría.
 - El id de fichero de la URL se valida contra `/^[A-Za-z0-9_-]{10,200}$/` antes de
   construir ninguna petición.
 
-### Pendiente de verificar
+### Acceso anónimo
 
-El acceso anónimo está implementado y probado contra endpoints simulados, pero
-**no contra Google**. Son dos piezas, y ambas dependen de lo mismo —que la Drive
-API responda con cabeceras CORS a una petición con API key desde otro origen—:
+El visor lee el fichero sin sesión, solo con la API key. Eso depende de que la
+Drive API responda con cabeceras CORS desde otro origen, y **está confirmado
+contra Google**:
 
-- `files.get?alt=media`, que sostiene el visor de un enlace de imagen.
-- `files.list`, que sostiene la vista de una carpeta compartida.
+```
+GET /drive/v3/files/<id>?alt=media&key=<API key>
+    Origin: https://svgshare.github.io
+→ 200 · access-control-allow-origin: https://svgshare.github.io
+```
 
-Es lo primero que hay que confirmar con credenciales reales. Si Google no responde
-con CORS ahí, ambas vistas necesitarían otra vía.
+Queda sin probar la pieza equivalente para carpetas: `files.list` sobre una
+carpeta pública y sin sesión, que es lo que sostiene `/account/?f=`. Es un
+endpoint distinto y no se ha ejecutado todavía contra Google.
 
 ## Previsualización al compartir
 
