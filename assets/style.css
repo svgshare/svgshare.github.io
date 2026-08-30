@@ -116,6 +116,8 @@ main { display: flex; flex-direction: column; gap: 16px; }
   transition: border-color .15s ease, background .15s ease, transform .15s ease;
 }
 .drop:active { transform: scale(.99); }
+/* Es un objetivo que se pulsa: tiene que responder al puntero, no solo al foco. */
+.drop:hover { border-color: var(--accent); background: var(--surface); }
 .drop:focus-within,
 .drop.is-over {
   border-color: var(--accent);
@@ -574,8 +576,8 @@ main { display: flex; flex-direction: column; gap: 16px; }
 }
 .to-account:hover { color: var(--text); }
 
-.signin { display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
-.signin-copy { margin: 0; font-size: 14px; line-height: 1.5; }
+.signin { display: flex; flex-direction: column; gap: 14px; align-items: center; }
+.signin-copy { margin: 0; font-size: 14px; line-height: 1.5; text-align: center; }
 .btn-google {
   display: inline-flex;
   align-items: center;
@@ -593,9 +595,96 @@ main { display: flex; flex-direction: column; gap: 16px; }
 .quota-figure { color: var(--muted); font-size: 13px; white-space: nowrap; }
 .quota .hint { margin: 0; }
 
-.drop-compact { padding: 20px 16px; }
-.folder-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.folder-actions .btn { flex: 1; min-width: 120px; white-space: nowrap; }
+/* Las secciones de la carpeta son hermanas sueltas: sin esto se pegan. */
+#folderBox { display: flex; flex-direction: column; gap: 16px; }
+
+.folder-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+}
+.folder-name {
+  font-weight: 600;
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.head-actions { display: flex; gap: 4px; flex: none; }
+.head-actions .icon-btn { color: var(--muted); }
+.head-actions .icon-btn:hover { color: var(--accent); background: var(--surface-2); }
+
+/* Toda la zona de contenido acepta que le suelten archivos encima. */
+.folder-content {
+  border: 2px dashed transparent;
+  border-radius: 14px;
+  margin: -6px;
+  padding: 6px;
+  transition: border-color .15s ease, background .15s ease;
+}
+.folder-content.is-over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* El hueco de añadir: ancho completo cuando no hay imágenes, y una celda más
+   cuando ya las hay. */
+.tile-add { border-style: dashed; background: var(--surface-2); }
+.tile-add.is-wide { grid-column: 1 / -1; }
+.add-open {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 100%;
+  min-height: 120px;
+  padding: 18px 14px;
+  text-align: center;
+  cursor: pointer;
+  color: var(--muted);
+}
+.tile-add:hover { border-color: var(--accent); }
+.tile-add:hover .add-open { color: var(--accent); }
+.tile-add:focus-within { border-color: var(--accent); }
+.add-title { font-weight: 600; font-size: 13px; color: var(--text); }
+.add-sub { font-size: 12px; }
+.tile-add:not(.is-wide) .add-sub { display: none; }
+
+/* Zona de riesgo: plegada por defecto, porque lo que hay dentro no se deshace. */
+.danger-zone {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.danger-toggle {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 13px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+.danger-toggle:hover { color: var(--bad); }
+.danger-toggle[aria-expanded="true"] .danger-caret { transform: rotate(180deg); }
+.danger-caret { transition: transform .15s ease; }
+.danger-body { padding: 0 14px 14px; display: flex; flex-direction: column; gap: 10px; }
+.danger-body .hint { margin: 0; }
+.btn-danger {
+  background: var(--bad);
+  color: #fff;
+  align-self: flex-start;
+}
+.btn-danger:hover { filter: brightness(1.05); }
 
 .empty { color: var(--muted); font-size: 14px; text-align: center; padding: 24px 0; }
 
@@ -712,3 +801,18 @@ main { display: flex; flex-direction: column; gap: 16px; }
   padding: 1px 8px;
 }
 .row-actions { flex: none; display: flex; gap: 12px; }
+
+/* La fila de crear: misma caja, pero discreta hasta que se apunta. */
+.row-new { border-style: dashed; background: none; }
+.row-new-btn {
+  appearance: none;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 0;
+}
+.row-new:hover { border-color: var(--accent); }
+.row-new:hover .row-new-btn, .row-new-btn:focus-visible { color: var(--accent); }
+.row-new .row-name { font-weight: 500; }

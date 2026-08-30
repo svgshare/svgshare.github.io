@@ -42,7 +42,12 @@ navegar por ellas, **compartir una imagen o una carpeta entera** con un enlace,
 dejar de compartirlos, borrarlos, y ver cuánto espacio ocupan en la cuenta.
 
 Las carpetas se listan arriba en filas con icono —no hay nada que previsualizar
-en una carpeta— y las imágenes debajo, en una rejilla de miniaturas.
+en una carpeta— y las imágenes debajo, en una rejilla de miniaturas. Toda esa
+zona acepta que le suelten archivos, y el hueco de «añadir» ocupa el ancho
+mientras no haya imágenes y el sitio de una más cuando ya las hay.
+
+Borrar la carpeta en la que estás vive en una **zona de riesgo plegada** al pie,
+porque no se puede deshacer.
 
 La navegación va en la URL (`/account/?id=<folderId>`), así que recargar y el
 botón «atrás» del navegador funcionan como se espera. Compartir estando dentro de
@@ -62,7 +67,9 @@ La portada no guarda nada en Drive: solo enlaza a `/account/`, con un enlace en
 la cabecera que está siempre —no hace falta haber cargado un SVG— y una tarjeta
 en el resultado que además avisa cuando el enlace autocontenido se pone largo. Ahí, sin sesión, lo
 primero es un botón de **entrar con Google**. El token vive solo en memoria, así
-que cada visita empieza pidiéndolo de nuevo — en silencio si ya hay consentimiento.
+que cada visita empieza pidiéndolo de nuevo. Con consentimiento previo eso ocurre en
+silencio (`prompt: 'none'`), así que recargar no obliga a pulsar el botón otra
+vez; si Google no puede concederlo sin interacción, aparece el botón.
 
 Compartir la carpeta la hace pública y da un enlace a `/account/?f=…`, que
 cualquiera puede abrir sin cuenta: se ven las miniaturas y se puede entrar en cada
@@ -204,7 +211,7 @@ python3 -m http.server 8080
 
 ## Tests
 
-132 comprobaciones con Playwright sobre Chromium a 390 px. `package.json` existe
+148 comprobaciones con Playwright sobre Chromium a 390 px. `package.json` existe
 solo para esto: la web sigue sirviéndose tal cual.
 
 ```bash
