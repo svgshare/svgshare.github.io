@@ -4,9 +4,12 @@
  * `drive.file` scope — per-file access to what this app creates — which is a
  * non-sensitive scope and therefore needs no OAuth verification.
  *
- * The access token lives in memory only. It is never written to localStorage,
- * sessionStorage or a cookie: a tab reload asks Google again (silently, once
- * the user has granted consent).
+ * The access token lives in memory, mirrored into sessionStorage so that
+ * reloading the tab does not ask for a second click. Asking Google again on
+ * load is not an option: its token client answers `prompt: 'none'` with a
+ * popup window, and with no click behind it the browser blocks it and warns.
+ * The copy is scoped to the tab and to this client id, and is dropped as soon
+ * as it expires or Drive answers 401. Closing the tab throws it away.
  */
 (function (global) {
   'use strict';
@@ -23,9 +26,66 @@
   var ANYONE = 'anyoneWithLink';
   var FIELDS = 'id,name,size,modifiedTime,shared,mimeType';
 
-  var token = null;        // { value, expiresAt }
+  var TOKEN_KEY = 'svgshare.drive.token';
+
   var tokenClient = null;
   var gisLoading = null;
+
+  /* -------------------------------------------------------------- el token */
+
+  // sessionStorage puede no estar (ventana privada, almacenamiento bloqueado):
+  // sin él todo sigue igual, solo que recargar vuelve a pedir el botón.
+  function box() {
+    try { return global.sessionStorage || null; } catch (err) { return null; }
+  }
+
+  function readStored() {
+    var store = box();
+    if (!store) return null;
+    var saved = null;
+    try { saved = JSON.parse(store.getItem(TOKEN_KEY)); } catch (err) { saved = null; }
+    if (!saved || typeof saved.value !== 'string' || typeof saved.expiresAt !== 'number') {
+      return null;
+    }
+    // Otro client id es otro despliegue: su token no sirve aquí.
+    if (saved.clientId !== (CONFIG.googleClientId || '')) return null;
+    return { value: saved.value, expiresAt: saved.expiresAt };
+  }
+
+  function writeStored(entry) {
+    var store = box();
+    if (!store) return;
+    try {
+      if (!entry) store.removeItem(TOKEN_KEY);
+      else {
+        store.setItem(TOKEN_KEY, JSON.stringify({
+          value: entry.value,
+          expiresAt: entry.expiresAt,
+          clientId: CONFIG.googleClientId || ''
+        }));
+      }
+    } catch (err) { /* sin sitio o sin permiso: da igual */ }
+  }
+
+  var token = readStored();  // { value, expiresAt }
+
+  function keepToken(value, expiresIn) {
+    token = { value: value, expiresAt: Date.now() + (Number(expiresIn) || 3600) * 1000 };
+    writeStored(token);
+    return token.value;
+  }
+
+  // Un minuto de margen: no vale un token que caduca a mitad de la petición.
+  function liveToken() {
+    if (!token) return null;
+    if (token.expiresAt > Date.now() + 60000) return token.value;
+    forget();
+    return null;
+  }
+
+  // Para que la vista de carpeta sepa, sin preguntar a Google ni parpadear,
+  // si la recarga trae sesión o hay que enseñar el botón.
+  function hasSession() { return Boolean(liveToken()); }
 
   // Uploading needs a client id; reading a public file needs an API key.
   function canUpload() { return Boolean(CONFIG.googleClientId); }
@@ -62,30 +122,15 @@
   // `interactive` false reuses a live token and never opens a popup, so the UI
   // can tell "already connected" from "needs a click" without bothering anyone.
   function getToken(interactive) {
-    if (token && token.expiresAt > Date.now() + 60000) return Promise.resolve(token.value);
+    var live = liveToken();
+    if (live) return Promise.resolve(live);
     if (!interactive) return Promise.resolve(null);
-    return requestToken('');
+    return requestToken();
   }
 
-  // Intento silencioso: `prompt: 'none'` no enseña nada y solo funciona si ya
-  // hay consentimiento y sesión de Google. Sirve para que recargar la página no
-  // obligue a volver a pulsar el botón, sin guardar el token en ningún sitio.
-  // Si no se puede, falla rápido y la UI enseña el botón.
-  function getTokenSilently() {
-    if (token && token.expiresAt > Date.now() + 60000) return Promise.resolve(token.value);
-    if (!canUpload()) return Promise.resolve(null);
-    return new Promise(function (resolve) {
-      var done = false;
-      var finish = function (value) {
-        if (!done) { done = true; resolve(value); }
-      };
-      // Si Google no contesta, no se deja al usuario mirando una pantalla vacía.
-      setTimeout(function () { finish(null); }, 4000);
-      requestToken('none').then(finish, function () { finish(null); });
-    });
-  }
-
-  function requestToken(prompt) {
+  // Siempre detrás de un clic: el token client abre una ventana emergente, y
+  // sin gesto del usuario el navegador la bloquea y saca su aviso.
+  function requestToken() {
     if (!canUpload()) return Promise.reject(new Error('not-configured'));
 
     return loadGis().then(function () {
@@ -101,24 +146,26 @@
           if (!response || response.error) {
             return reject(new Error((response && response.error) || 'auth-failed'));
           }
-          token = {
-            value: response.access_token,
-            expiresAt: Date.now() + (Number(response.expires_in) || 3600) * 1000
-          };
-          resolve(token.value);
+          resolve(keepToken(response.access_token, response.expires_in));
         };
         tokenClient.error_callback = function (err) {
           reject(new Error((err && err.type) || 'auth-cancelled'));
         };
         // An empty prompt reuses the existing grant when there is one.
-        tokenClient.requestAccessToken({ prompt: prompt });
+        tokenClient.requestAccessToken({ prompt: '' });
       });
     });
   }
 
-  function forget() { token = null; }
+  function forget() {
+    token = null;
+    writeStored(null);
+  }
 
   function apiError(response, body) {
+    // Un 401 es un token muerto (caducado o revocado). Si se quedara guardado,
+    // recargar y hasta volver a pulsar el botón repetirían el mismo fallo.
+    if (response.status === 401) forget();
     var detail = body && body.error && body.error.message;
     var err = new Error(detail || ('HTTP ' + response.status));
     err.status = response.status;
@@ -364,7 +411,7 @@
     isFileId: isFileId,
     fileUrl: fileUrl,
     getToken: getToken,
-    getTokenSilently: getTokenSilently,
+    hasSession: hasSession,
     forget: forget,
     save: save,
     upload: upload,
