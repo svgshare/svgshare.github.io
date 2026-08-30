@@ -199,6 +199,22 @@ test('el botón «Abrir» apunta al mismo enlace del cuadro de texto', async ({ 
   expect(await page.locator('#btnOpen').getAttribute('href')).toBe(await linkOf(page));
 });
 
+// Compartir y abrir se explican con su icono; el nombre se queda en el título
+// y en la etiqueta, que es lo que lee un lector de pantalla.
+test('compartir y abrir son botones de icono, sin texto', async ({ page }) => {
+  await upload(page, 'cuadrado.svg', PLAIN);
+
+  for (const id of ['#btnShare', '#btnOpen']) {
+    const btn = page.locator(id);
+    expect((await btn.textContent()).trim()).toBe('');
+    await expect(btn.locator('svg')).toHaveCount(1);
+    await expect(btn).toHaveAttribute('aria-label', /\S/);
+    await expect(btn).toHaveAttribute('title', /\S/);
+  }
+  // El de copiar, en cambio, sigue diciendo lo que hace.
+  await expect(page.locator('#btnCopy')).toContainText('Copiar enlace');
+});
+
 test('sin credenciales de Google el carril de Drive no aparece', async ({ page }) => {
   await upload(page, 'cuadrado.svg', PLAIN);
   await expect(page.locator('#driveBox')).toBeHidden();
