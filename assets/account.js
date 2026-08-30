@@ -575,26 +575,17 @@
       return openFolder(Drive.isFileId(wanted) ? wanted : id);
     }).catch(function (err) {
       show(folderBox, false);
-      show(signinBox, true);
-      var error = document.getElementById('signinError');
-      error.textContent = driveMessage(err);
-      error.hidden = false;
+      startSignin(driveMessage(err));
     });
   }
 
-  function startSignin() {
+  // El botón es también la salida de cualquier tropiezo con la sesión, así que
+  // se enseña con el motivo cuando lo hay.
+  function startSignin(message) {
     show(signinBox, true);
-    document.getElementById('btnSignin').addEventListener('click', function () {
-      var btn = document.getElementById('btnSignin');
-      btn.disabled = true;
-      Drive.getToken(true).then(function () {
-        startOwn();
-      }).catch(function (err) {
-        var error = document.getElementById('signinError');
-        error.textContent = driveMessage(err);
-        error.hidden = false;
-      }).finally(function () { btn.disabled = false; });
-    });
+    var error = document.getElementById('signinError');
+    error.textContent = message || '';
+    error.hidden = !message;
   }
 
   // Carpeta ajena: sin sesión, solo lectura, con API key.
@@ -643,6 +634,18 @@
   window.addEventListener('drop', function (event) {
     var files = event.dataTransfer && event.dataTransfer.files;
     if (files && files.length && folderId) uploadFiles(files);
+  });
+
+  // Atado siempre, no solo al arrancar sin sesión: el botón es lo que queda
+  // cuando la carpeta no se puede abrir, y ahí también tiene que responder.
+  document.getElementById('btnSignin').addEventListener('click', function () {
+    var btn = document.getElementById('btnSignin');
+    btn.disabled = true;
+    Drive.getToken(true).then(function () {
+      startOwn();
+    }).catch(function (err) {
+      startSignin(driveMessage(err));
+    }).finally(function () { btn.disabled = false; });
   });
 
   document.getElementById('btnRefresh').addEventListener('click', function () {
@@ -697,12 +700,12 @@
   } else if (!Drive.canShorten()) {
     show(document.getElementById('offBox'), true);
   } else {
-    // Recargar no debería obligar a pulsar el botón otra vez. Con consentimiento
-    // previo Google devuelve el token sin enseñar nada, así que la sesión
-    // sobrevive a la recarga sin haber guardado el token en ningún sitio.
-    Drive.getTokenSilently().then(function (token) {
-      if (token) startOwn();
-      else startSignin();
-    }).catch(function () { startSignin(); });
+    // Recargar no debería obligar a pulsar el botón otra vez: el token sigue
+    // vivo en la pestaña, así que la sesión aguanta la recarga sin volver a
+    // hablar con Google. Pedirlo «en silencio» no es opción: el token client
+    // abre una ventana emergente, y sin un clic detrás el navegador la bloquea
+    // y saca su aviso.
+    if (Drive.hasSession()) startOwn();
+    else startSignin();
   }
 })();

@@ -2,8 +2,9 @@
  * La vista de carpeta (/account/): entrar, listar, subir, compartir, borrar y
  * la barra de cuota. Todo contra el Drive simulado de test/google-mock.js.
  *
- * El token vive solo en memoria, así que cada carga empieza sin sesión: el
- * botón de Google es siempre el punto de entrada.
+ * El token vive en la pestaña (sessionStorage), así que una pestaña nueva
+ * empieza sin sesión y el botón de Google es el punto de entrada; recargar, en
+ * cambio, no vuelve a pedir nada.
  */
 const { test, expect } = require('@playwright/test');
 const { mockGoogle, PLAIN } = require('./google-mock');
@@ -61,57 +62,138 @@ test('sin credenciales en el despliegue no hay carpeta que enseñar', async ({ p
   await expect(page.locator('#signinBox')).toBeHidden();
 });
 
-test('el token sigue sin tocar localStorage ni cookies', async ({ page }) => {
+// El token se guarda en la pestaña para que recargar no obligue a entrar otra
+// vez. Nunca sale de ahí: ni a localStorage, que sobreviviría al cierre, ni a
+// una cookie, que además viajaría en cada petición.
+test('el token se queda en la pestaña, no en localStorage ni cookies', async ({ page }) => {
   await mockGoogle(page, { files: [{ name: 'logo.svg' }] });
   await page.goto('/account/');
   await signIn(page);
 
   const stored = await page.evaluate(() => ({
     local: JSON.stringify(Object.entries(localStorage)),
-    session: JSON.stringify(Object.entries(sessionStorage)),
+    session: sessionStorage.getItem('svgshare.drive.token'),
     cookie: document.cookie
   }));
   expect(stored.local).toBe('[]');
-  expect(stored.session).toBe('[]');
+  expect(JSON.parse(stored.session).value).toBe('fake-token');
   expect(stored.cookie).not.toContain('fake-token');
 });
 
-// Recargar no debe obligar a pulsar el botón otra vez: con consentimiento
-// previo Google concede el token sin enseñar nada, y sin guardarlo en disco.
-test('con consentimiento previo se entra sin pulsar nada', async ({ page }) => {
-  await mockGoogle(page, { silentGrant: true, files: [{ name: 'logo.svg' }] });
-  await page.goto('/account/');
-
-  await expect(page.locator('#folderBox')).toBeVisible();
-  await expect(page.locator('#signinBox')).toBeHidden();
-  await expect(page.locator('.tile:not(.tile-add)')).toHaveCount(1);
-  expect(await page.evaluate(() => window.__silentRequests)).toBe(1);
-});
-
-test('sin consentimiento previo el intento silencioso no molesta y sale el botón', async ({ page }) => {
+// Lo que motivó todo esto: pedirle a Google un token «en silencio» al cargar
+// abre una ventana emergente que el navegador bloquea, avisando. Así que al
+// cargar no se le pide nada, ni se carga siquiera su biblioteca.
+test('al cargar no se le pide nada a Google', async ({ page }) => {
+  let gisHits = 0;
+  page.on('request', (req) => { if (req.url().includes('gsi/client')) gisHits += 1; });
   await mockGoogle(page);
   await page.goto('/account/');
 
   await expect(page.locator('#signinBox')).toBeVisible();
-  await expect(page.locator('#folderBox')).toBeHidden();
-  // Se intentó, y al no poder se cayó al botón sin enseñar ningún error.
-  expect(await page.evaluate(() => window.__silentRequests)).toBe(1);
   await expect(page.locator('#signinError')).toBeHidden();
+  expect(await page.evaluate(() => window.__authRequests || 0)).toBe(0);
+  expect(gisHits).toBe(0);
 });
 
-test('el token del intento silencioso tampoco se guarda', async ({ page }) => {
-  await mockGoogle(page, { silentGrant: true });
+test('recargar mantiene la sesión sin volver a hablar con Google', async ({ page }) => {
+  await mockGoogle(page, { files: [{ name: 'logo.svg' }] });
   await page.goto('/account/');
-  await expect(page.locator('#folderBox')).toBeVisible();
+  await signIn(page);
 
-  const stored = await page.evaluate(() => ({
-    local: JSON.stringify(Object.entries(localStorage)),
-    session: JSON.stringify(Object.entries(sessionStorage)),
-    cookie: document.cookie
-  }));
-  expect(stored.local).toBe('[]');
-  expect(stored.session).toBe('[]');
-  expect(stored.cookie).not.toContain('fake-token');
+  let gisHits = 0;
+  page.on('request', (req) => { if (req.url().includes('gsi/client')) gisHits += 1; });
+  await page.reload();
+
+  await expect(page.locator('#folderBox')).toBeVisible();
+  await expect(page.locator('#signinBox')).toBeHidden();
+  await expect(page.locator('.tile:not(.tile-add)')).toHaveCount(1);
+  expect(await page.evaluate(() => window.__authRequests || 0)).toBe(0);
+  expect(gisHits).toBe(0);
+});
+
+test('el clic de entrar nunca pide el prompt silencioso', async ({ page }) => {
+  await mockGoogle(page);
+  await page.goto('/account/');
+  await signIn(page);
+  expect(await page.evaluate(() => window.__authPrompts)).toEqual(['']);
+});
+
+// sessionStorage es de la pestaña: otra pestaña no hereda la sesión.
+test('una pestaña nueva empieza sin sesión', async ({ context, page }) => {
+  await mockGoogle(page);
+  await page.goto('/account/');
+  await signIn(page);
+
+  const other = await context.newPage();
+  await mockGoogle(other);
+  await other.goto('/account/');
+  await expect(other.locator('#signinBox')).toBeVisible();
+  await expect(other.locator('#folderBox')).toBeHidden();
+});
+
+test('un token caducado no cuenta como sesión y se tira', async ({ page }) => {
+  await mockGoogle(page);
+  await page.addInitScript(() => {
+    sessionStorage.setItem('svgshare.drive.token', JSON.stringify({
+      value: 'fake-token',
+      expiresAt: Date.now() - 1000,
+      clientId: 'test-client-id.apps.googleusercontent.com'
+    }));
+  });
+  await page.goto('/account/');
+
+  await expect(page.locator('#signinBox')).toBeVisible();
+  expect(await page.evaluate(() => sessionStorage.getItem('svgshare.drive.token'))).toBe(null);
+});
+
+// Un token que Drive rechaza tiene que desaparecer: si se quedara guardado,
+// recargar —y hasta volver a pulsar el botón— repetiría el mismo 401.
+test('un token que Drive rechaza se olvida', async ({ page }) => {
+  await mockGoogle(page);
+  await page.addInitScript(() => {
+    sessionStorage.setItem('svgshare.drive.token', JSON.stringify({
+      value: 'token-muerto',
+      expiresAt: Date.now() + 3600000,
+      clientId: 'test-client-id.apps.googleusercontent.com'
+    }));
+  });
+  await page.goto('/account/');
+
+  await expect(page.locator('#signinError')).toContainText('La sesión de Google caducó');
+  await expect(page.locator('#signinBox')).toBeVisible();
+  expect(await page.evaluate(() => sessionStorage.getItem('svgshare.drive.token'))).toBe(null);
+  // Y el botón vuelve a funcionar en vez de reintentar el token muerto.
+  await signIn(page);
+});
+
+// El token de otro despliegue (otro client id) no vale aquí.
+test('un token de otro client id se ignora', async ({ page }) => {
+  await mockGoogle(page);
+  await page.addInitScript(() => {
+    sessionStorage.setItem('svgshare.drive.token', JSON.stringify({
+      value: 'fake-token',
+      expiresAt: Date.now() + 3600000,
+      clientId: 'otro-cliente.apps.googleusercontent.com'
+    }));
+  });
+  await page.goto('/account/');
+  await expect(page.locator('#signinBox')).toBeVisible();
+});
+
+test('sin sessionStorage la página sigue funcionando', async ({ page }) => {
+  await mockGoogle(page, { files: [{ name: 'logo.svg' }] });
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'sessionStorage', {
+      get() { throw new Error('almacenamiento bloqueado'); }
+    });
+  });
+  await page.goto('/account/');
+  await signIn(page);
+
+  await expect(page.locator('.tile:not(.tile-add)')).toHaveCount(1);
+  // Sin dónde guardarlo, recargar vuelve a pedir el botón, y nada se rompe.
+  await page.reload();
+  await expect(page.locator('#signinBox')).toBeVisible();
 });
 
 /* ----------------------------------------------------------------- carpeta */

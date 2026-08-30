@@ -66,10 +66,15 @@ fichero o le retira el permiso público.
 La portada no guarda nada en Drive: solo enlaza a `/account/`, con un enlace en
 la cabecera que está siempre —no hace falta haber cargado un SVG— y una tarjeta
 en el resultado que además avisa cuando el enlace autocontenido se pone largo. Ahí, sin sesión, lo
-primero es un botón de **entrar con Google**. El token vive solo en memoria, así
-que cada visita empieza pidiéndolo de nuevo. Con consentimiento previo eso ocurre en
-silencio (`prompt: 'none'`), así que recargar no obliga a pulsar el botón otra
-vez; si Google no puede concederlo sin interacción, aparece el botón.
+primero es un botón de **entrar con Google**. El token se queda en la pestaña
+(`sessionStorage`), así que recargar no obliga a pulsar el botón otra vez;
+cerrarla lo tira, y una pestaña nueva vuelve a empezar por el botón.
+
+Pedírselo a Google «en silencio» al cargar (`prompt: 'none'`) **no** es una
+alternativa: el token client de Google Identity Services solo hace el refresco
+silencioso por iframe si se le pasa `enable_token_refresh` y su experimento
+está activo; en cualquier otro caso abre una ventana emergente, y sin un clic
+detrás el navegador la bloquea y saca su aviso.
 
 Compartir la carpeta la hace pública y da un enlace a `/account/?f=…`, que
 cualquiera puede abrir sin cuenta: se ven las miniaturas y se puede entrar en cada
@@ -118,9 +123,11 @@ precisamente para no salir de esa categoría.
 
 ### Seguridad
 
-- El token de acceso vive **solo en memoria**: nunca en `localStorage`, `sessionStorage`
-  ni cookies. Recargar la pestaña vuelve a pedirlo a Google, en silencio si ya hay
-  consentimiento.
+- El token de acceso vive en memoria y en el `sessionStorage` de la pestaña, nunca
+  en `localStorage` ni en cookies: no sobrevive al cierre de la pestaña, no se
+  comparte con otras y no viaja en ninguna petición que no sea a Google. Se tira en
+  cuanto caduca, o en cuanto Drive contesta 401. Sin `sessionStorage` disponible
+  todo funciona igual, solo que recargar vuelve a pedir el botón.
 - El SVG que llega de Drive es tan poco fiable como el que llega de la URL, y pasa
   por el mismo saneador antes de pintarse.
 - El id de fichero de la URL se valida contra `/^[A-Za-z0-9_-]{10,200}$/` antes de
