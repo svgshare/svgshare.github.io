@@ -41,10 +41,24 @@ Desde esa vista se puede subir SVG, previsualizarlos, **crear subcarpetas** y
 navegar por ellas, **compartir una imagen o una carpeta entera** con un enlace,
 dejar de compartirlos, borrarlos, y ver cuánto espacio ocupan en la cuenta.
 
-Las carpetas se listan arriba en filas con icono —no hay nada que previsualizar
-en una carpeta— y las imágenes debajo, en una rejilla de miniaturas. Toda esa
-zona acepta que le suelten archivos, y el hueco de «añadir» ocupa el ancho
-mientras no haya imágenes y el sitio de una más cuando ya las hay.
+La cabecera reúne las tres acciones que son de la carpeta entera —crear una
+subcarpeta, actualizar y compartir—, en botones de icono. Las carpetas se listan
+debajo en filas con icono —no hay nada que previsualizar en una carpeta— y las
+imágenes en una rejilla de miniaturas. Toda esa zona acepta que le suelten
+archivos, y el hueco de «añadir» ocupa el ancho mientras no haya imágenes y el
+sitio de una más cuando ya las hay.
+
+Una fila de carpeta es solo la carpeta: se entra pulsándola y ahí dentro están
+su botón de compartir y su zona de riesgo, así que la fila no repite acciones que
+ya tiene la cabecera.
+
+Tocar una imagen la abre **en una modal**, grande y sin salir de la carpeta, con
+el enlace al visor a un clic. El enlace de la miniatura sigue existiendo, así que
+abrir en otra pestaña o copiarlo funciona como en cualquier enlace.
+
+Todo lo que pregunta —confirmar un borrado, el nombre de una carpeta nueva— usa
+un `<dialog>` modal de la propia página, no `confirm()` ni `prompt()`: los del
+navegador no se pueden vestir y en móvil aparecen donde quieren.
 
 Borrar la carpeta en la que estás vive en una **zona de riesgo plegada** al pie,
 porque no se puede deshacer.

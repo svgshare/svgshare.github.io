@@ -504,6 +504,48 @@ main { display: flex; flex-direction: column; gap: 16px; }
   cursor: pointer;
   font-size: 14px;
 }
+.dialog-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.dialog-body .hint, .dialog-body .field { margin: 0; }
+.dialog-foot .btn { align-self: center; }
+.dialog-foot .hint { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.is-error { color: var(--bad); }
+
+.input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+}
+.input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Un botón que ya se explica con su icono no necesita repetirlo en texto. */
+.btn-icon { padding: 12px; min-width: 46px; line-height: 0; }
+
+/* La imagen grande, sin salir de la carpeta: la tarjeta ya la enseña pequeña,
+   así que aquí ocupa el ancho —es un vector, ampliar no le cuesta nada— y solo
+   la altura de la ventana la frena. */
+.dialog-preview .preview-stage {
+  --sq: 12px;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+.preview-stage img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 56svh;
+  object-fit: contain;
+}
+.preview-stage .hint { margin: 0; }
+.preview-actions { display: flex; gap: 8px; flex: none; }
+
 .code {
   margin: 0;
   padding: 14px 16px;
@@ -800,19 +842,6 @@ main { display: flex; flex-direction: column; gap: 16px; }
   border-radius: 999px;
   padding: 1px 8px;
 }
-.row-actions { flex: none; display: flex; gap: 12px; }
-
-/* La fila de crear: misma caja, pero discreta hasta que se apunta. */
-.row-new { border-style: dashed; background: none; }
-.row-new-btn {
-  appearance: none;
-  border: 0;
-  background: none;
-  font: inherit;
-  cursor: pointer;
-  color: var(--muted);
-  padding: 0;
-}
-.row-new:hover { border-color: var(--accent); }
-.row-new:hover .row-new-btn, .row-new-btn:focus-visible { color: var(--accent); }
-.row-new .row-name { font-weight: 500; }
+/* La fila entera es el objetivo —abre la carpeta—, así que el aviso de que se
+   puede pulsar es de la caja, no solo del icono. */
+.row:hover, .row:focus-within { border-color: var(--accent); }

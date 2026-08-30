@@ -59,6 +59,9 @@
       <section class="card folder-head" id="uploadCard">
         <span class="folder-name" id="folderName">SVGshare</span>
         <div class="head-actions">
+          <button type="button" class="icon-btn" id="btnNewFolder" title="Nueva carpeta" aria-label="Nueva carpeta">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M12 11v5M9.5 13.5h5"/></svg>
+          </button>
           <button type="button" class="icon-btn" id="btnRefresh" title="Actualizar" aria-label="Actualizar">
             <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
           </button>
@@ -117,6 +120,51 @@
     <button type="button" class="btn btn-ghost" id="btnUnshare">Dejar de compartir</button>
     <button type="button" class="btn btn-primary" id="btnCopyShare">Copiar enlace</button>
   </div>
+</dialog>
+
+<dialog id="previewDialog" class="dialog dialog-preview">
+  <div class="dialog-head">
+    <h2 id="previewTitle">Imagen</h2>
+    <button type="button" class="icon-btn" data-close-dialog aria-label="Cerrar">✕</button>
+  </div>
+  <div class="preview-stage" id="previewStage" data-bg="checker">
+    <img id="previewImg" alt="">
+    <p class="hint" id="previewError" hidden>No se pudo cargar la imagen.</p>
+  </div>
+  <div class="dialog-foot">
+    <span class="hint" id="previewMeta"></span>
+    <div class="preview-actions">
+      <button type="button" class="btn btn-ghost btn-icon" id="btnPreviewShare" title="Compartir" aria-label="Compartir">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg>
+      </button>
+      <a class="btn btn-ghost btn-icon" id="btnPreviewOpen" target="_blank" rel="noopener" title="Abrir en el visor" aria-label="Abrir en el visor">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/></svg>
+      </a>
+    </div>
+  </div>
+</dialog>
+
+<!-- Confirmar y pedir un nombre, en la propia página: confirm() y prompt() son
+     del navegador, no se pueden vestir y en móvil aparecen donde quieren. -->
+<dialog id="askDialog" class="dialog dialog-ask">
+  <form method="dialog" id="askForm">
+    <div class="dialog-head">
+      <h2 id="askTitle">Confirmar</h2>
+      <button type="button" class="icon-btn" data-close-dialog aria-label="Cerrar">✕</button>
+    </div>
+    <div class="dialog-body">
+      <p class="hint" id="askNote"></p>
+      <label class="field" id="askField" hidden>
+        <span class="field-label" id="askLabel">Nombre</span>
+        <input type="text" id="askInput" class="input" autocomplete="off" spellcheck="false">
+      </label>
+      <p class="hint is-error" id="askError" hidden></p>
+    </div>
+    <div class="dialog-foot">
+      <button type="button" class="btn btn-ghost" data-close-dialog>Cancelar</button>
+      <button type="submit" class="btn btn-primary" id="btnAskOk" value="ok">Aceptar</button>
+    </div>
+  </form>
 </dialog>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>

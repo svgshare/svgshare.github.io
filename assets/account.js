@@ -21,7 +21,9 @@
   var folderId = null;  // la que se está viendo (puede ser una subcarpeta)
   var trail = [];       // rastro de migas: [{ id, name }]
   var items = [];
+  var art = {};         // id → la imagen ya saneada, como data: URI
   var sharing = null;   // { id, kind: 'file' | 'folder', name }
+  var previewing = null; // la imagen que enseña la modal, mientras está abierta
 
   /* ------------------------------------------------------------------ toast */
 
@@ -117,7 +119,7 @@
 
   // Una carpeta no tiene nada que previsualizar, así que va en una lista con
   // icono: una rejilla de iconos idénticos ocupa mucho y no dice nada.
-  function row(item, readOnly) {
+  function row(item) {
     var li = document.createElement('li');
     li.className = 'row';
     li.dataset.id = item.id;
@@ -147,51 +149,6 @@
       });
     }
     li.appendChild(open);
-
-    if (!readOnly) {
-      var actions = document.createElement('div');
-      actions.className = 'row-actions';
-
-      var share = document.createElement('button');
-      share.type = 'button';
-      share.className = 'linkish';
-      share.textContent = item.shared ? 'Enlace' : 'Compartir';
-      share.addEventListener('click', function () { openShare(item, 'folder'); });
-
-      var del = document.createElement('button');
-      del.type = 'button';
-      del.className = 'linkish is-danger';
-      del.textContent = 'Borrar';
-      del.addEventListener('click', function () { removeItem(item); });
-
-      actions.appendChild(share);
-      actions.appendChild(del);
-      li.appendChild(actions);
-    }
-    return li;
-  }
-
-  // Crear una carpeta pertenece a la lista de carpetas, no a la cabecera.
-  function newFolderRow() {
-    var li = document.createElement('li');
-    li.className = 'row row-new';
-
-    var button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'row-open row-new-btn';
-    button.id = 'btnNewFolder';
-    button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
-      'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-      '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>' +
-      '<path d="M12 11v5M9.5 13.5h5"/></svg>';
-
-    var name = document.createElement('span');
-    name.className = 'row-name';
-    name.textContent = 'Nueva carpeta';
-    button.appendChild(name);
-    button.addEventListener('click', newFolder);
-
-    li.appendChild(button);
     return li;
   }
 
@@ -208,10 +165,17 @@
     img.loading = 'lazy';
     figure.appendChild(img);
 
+    // El enlace al visor se mantiene —para abrir en otra pestaña, copiarlo o
+    // compartirlo—, pero el clic normal se queda en la página y abre la modal.
     var open = document.createElement('a');
     open.className = 'tile-open';
     open.href = fileLink(item.id, item.name);
     open.appendChild(figure);
+    open.addEventListener('click', function (event) {
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      openPreview(item, readOnly);
+    });
 
     var meta = document.createElement('div');
     meta.className = 'tile-meta';
@@ -266,8 +230,12 @@
   function paint(item, img) {
     var get = readPublic ? Drive.download(item.id) : Drive.fetchOwn(item.id);
     get.then(function (text) {
-      img.src = S.dataUri(S.minify(S.sanitize(S.parseSvg(text))));
+      // La misma imagen sirve para la tarjeta y para la modal: se guarda ya
+      // saneada para no volver a pedirla al abrirla.
+      art[item.id] = S.dataUri(S.minify(S.sanitize(S.parseSvg(text))));
+      img.src = art[item.id];
     }).catch(function () {
+      delete art[item.id];
       img.closest('.tile-art').classList.add('is-broken');
     });
   }
@@ -284,8 +252,7 @@
     var files = items.filter(function (x) { return !Drive.isFolder(x); }).sort(byName);
 
     // Carpetas arriba, en lista; las imágenes debajo, en rejilla.
-    folders.forEach(function (item) { folderList.appendChild(row(item, readOnly)); });
-    if (!readOnly) folderList.appendChild(newFolderRow());
+    folders.forEach(function (item) { folderList.appendChild(row(item)); });
     files.forEach(function (item) { grid.insertBefore(card(item, readOnly), addTile); });
 
     // Ocupa el ancho mientras no haya imágenes; después, el sitio de una más.
@@ -364,9 +331,83 @@
     show(box, true);
   }
 
-  /* --------------------------------------------------------------- acciones */
+  /* -------------------------------------------------------------- diálogos */
 
   var shareDialog = document.getElementById('shareDialog');
+  var previewDialog = document.getElementById('previewDialog');
+  var askDialog = document.getElementById('askDialog');
+  var askInput = document.getElementById('askInput');
+  var askError = document.getElementById('askError');
+  var asking = null;    // { input, resolve } mientras hay una pregunta abierta
+
+  function openDialog(dialog) {
+    if (typeof dialog.showModal === 'function') dialog.showModal();
+    else dialog.setAttribute('open', '');
+  }
+
+  // Preguntar sin salir de la página: confirm() y prompt() son del navegador,
+  // no se pueden vestir y en móvil salen donde quieren. Devuelve el texto —o
+  // true— al aceptar, y null —o false— al cancelar.
+  function ask(options) {
+    var opts = options || {};
+    var note = document.getElementById('askNote');
+    var field = document.getElementById('askField');
+    var ok = document.getElementById('btnAskOk');
+
+    document.getElementById('askTitle').textContent = opts.title || 'Confirmar';
+    note.textContent = opts.note || '';
+    note.hidden = !opts.note;
+    field.hidden = !opts.input;
+    if (opts.input) {
+      document.getElementById('askLabel').textContent = opts.label || 'Nombre';
+      askInput.value = opts.value || '';
+      askInput.placeholder = opts.placeholder || '';
+    }
+    askError.hidden = true;
+    ok.textContent = opts.okText || 'Aceptar';
+    ok.className = 'btn ' + (opts.danger ? 'btn-danger' : 'btn-primary');
+
+    // returnValue se conserva entre aperturas: sin esto, un «sí» de antes
+    // valdría como respuesta a la pregunta siguiente.
+    askDialog.returnValue = '';
+    openDialog(askDialog);
+    if (opts.input) askInput.select();
+
+    return new Promise(function (resolve) {
+      asking = { input: Boolean(opts.input), resolve: resolve };
+    });
+  }
+
+  document.getElementById('askForm').addEventListener('submit', function (event) {
+    if (!asking || !asking.input || askInput.value.trim()) return;
+    // Sin nombre no hay nada que crear: la pregunta se queda abierta.
+    event.preventDefault();
+    askError.textContent = 'Hace falta un nombre';
+    askError.hidden = false;
+    askInput.focus();
+  });
+
+  // Cerrar por donde sea —✕, Cancelar, Escape— pasa por aquí.
+  askDialog.addEventListener('close', function () {
+    if (!asking) return;
+    var answer = asking.resolve;
+    var wanted = asking.input;
+    var yes = askDialog.returnValue === 'ok';
+    asking = null;
+    answer(wanted ? (yes ? askInput.value.trim() : null) : yes);
+  });
+
+  previewDialog.addEventListener('close', function () { previewing = null; });
+
+  // La ✕, el botón de cancelar, y el clic en el telón: el <dialog> solo recibe
+  // el clic cuando cae fuera de su contenido.
+  [shareDialog, previewDialog, askDialog].forEach(function (dialog) {
+    dialog.addEventListener('click', function (event) {
+      if (event.target === dialog || event.target.closest('[data-close-dialog]')) dialog.close();
+    });
+  });
+
+  /* --------------------------------------------------------------- acciones */
 
   function openShare(item, kind) {
     sharing = { id: item.id, kind: kind, name: item.name };
@@ -377,8 +418,7 @@
       ? 'Cualquiera con este enlace podrá ver los SVG de la carpeta, pero no añadir ni borrar nada.'
       : 'Cualquiera con este enlace podrá ver y descargar esta imagen.';
     document.getElementById('shareLink').value = 'Preparando…';
-    if (typeof shareDialog.showModal === 'function') shareDialog.showModal();
-    else shareDialog.setAttribute('open', '');
+    openDialog(shareDialog);
 
     Drive.publish(item.id).then(function () {
       document.getElementById('shareLink').value =
@@ -392,40 +432,54 @@
     });
   }
 
+  // Ver la imagen grande sin salir de la carpeta: la tarjeta es pequeña y el
+  // visor obliga a ir y volver.
+  function openPreview(item, readOnly) {
+    previewing = item;
+    var img = document.getElementById('previewImg');
+    var src = art[item.id];
+
+    document.getElementById('previewTitle').textContent = item.name;
+    document.getElementById('previewMeta').textContent = describe(item);
+    img.alt = item.name;
+    // Sin src el navegador pinta el icono de imagen rota, y con src="" pediría
+    // la propia página: cuando no hay imagen, fuera el atributo.
+    if (src) img.src = src;
+    else img.removeAttribute('src');
+    img.hidden = !src;
+    document.getElementById('previewError').hidden = Boolean(src);
+    document.getElementById('btnPreviewOpen').href = fileLink(item.id, item.name);
+    document.getElementById('btnPreviewShare').hidden = readOnly;
+    openDialog(previewDialog);
+  }
+
+  // Compartir o dejar de compartir cambia lo que dice la tarjeta, y no merece
+  // volver a listar la carpeta entera.
   function refreshTile(item) {
-    var li = document.querySelector('#grid [data-id="' + item.id + '"], ' +
-      '#folders [data-id="' + item.id + '"]');
+    var li = document.querySelector('#grid [data-id="' + item.id + '"]');
     if (!li) return;
     var btn = li.querySelector('.linkish');
     if (btn) btn.textContent = item.shared ? 'Enlace' : 'Compartir';
     var size = li.querySelector('.tile-size');
     if (size) size.textContent = describe(item);
-    // En una carpeta la marca de compartida es una insignia, no una línea.
-    if (li.classList.contains('row')) {
-      var badge = li.querySelector('.row-meta');
-      if (item.shared && !badge) {
-        badge = document.createElement('span');
-        badge.className = 'row-meta';
-        badge.textContent = 'compartida';
-        li.querySelector('.row-open').appendChild(badge);
-      } else if (!item.shared && badge) {
-        badge.remove();
-      }
-    }
   }
 
-  // Borrar una carpeta en Drive se lleva por delante lo que hay dentro, así que
-  // la pregunta tiene que decirlo.
+  // Solo imágenes: una carpeta se borra desde dentro, en la zona de riesgo.
   function removeItem(item) {
-    var question = Drive.isFolder(item)
-      ? '¿Borrar la carpeta «' + item.name + '» y todo su contenido? No se puede deshacer.'
-      : '¿Borrar «' + item.name + '» de tu Drive? No se puede deshacer.';
-    if (!confirm(question)) return;
-    Drive.remove(item.id).then(function () {
-      items = items.filter(function (x) { return x.id !== item.id; });
-      render(false);
-      toast('Borrado');
-      Drive.quota().then(renderQuota).catch(function () {});
+    ask({
+      title: 'Borrar la imagen',
+      note: '¿Borrar «' + item.name + '» de tu Drive? No se puede deshacer.',
+      okText: 'Borrar',
+      danger: true
+    }).then(function (yes) {
+      if (!yes) return;
+      return Drive.remove(item.id).then(function () {
+        items = items.filter(function (x) { return x.id !== item.id; });
+        delete art[item.id];
+        render(false);
+        toast('Borrado');
+        Drive.quota().then(renderQuota).catch(function () {});
+      });
     }).catch(function (err) { toast(driveMessage(err)); });
   }
 
@@ -530,10 +584,23 @@
   // raíz, ensureFolder la vuelve a crear vacía.
   function deleteCurrentFolder() {
     var here = trail.length ? trail[trail.length - 1].name : Drive.folderName;
-    if (!confirm('¿Borrar la carpeta «' + here + '» y todo su contenido? No se puede deshacer.')) return;
-
     var wasRoot = folderId === rootId;
-    Drive.remove(folderId).then(function () {
+
+    // Borrar una carpeta en Drive se lleva por delante lo que hay dentro, así
+    // que la pregunta tiene que decirlo.
+    ask({
+      title: 'Borrar la carpeta',
+      note: '¿Borrar la carpeta «' + here + '» y todo su contenido? No se puede deshacer.',
+      okText: 'Borrar',
+      danger: true
+    }).then(function (yes) {
+      if (!yes) return;
+      return removeFolder(wasRoot);
+    }).catch(function (err) { toast(driveMessage(err)); });
+  }
+
+  function removeFolder(wasRoot) {
+    return Drive.remove(folderId).then(function () {
       toast('Carpeta borrada');
       if (wasRoot) {
         return Drive.ensureFolder().then(function (id) {
@@ -548,18 +615,22 @@
       items = [];
       render(false);
       return reload();
-    }).catch(function (err) { toast(driveMessage(err)); });
+    });
   }
 
   function newFolder() {
-    var name = prompt('Nombre de la nueva carpeta');
-    if (name === null) return;
-    name = name.trim();
-    if (!name) return toast('Hace falta un nombre');
-
-    Drive.createFolder(name, folderId).then(function () {
-      toast('Carpeta creada');
-      return reload();
+    ask({
+      title: 'Nueva carpeta',
+      label: 'Nombre de la carpeta',
+      placeholder: 'Logos',
+      input: true,
+      okText: 'Crear'
+    }).then(function (name) {
+      if (!name) return;
+      return Drive.createFolder(name, folderId).then(function () {
+        toast('Carpeta creada');
+        return reload();
+      });
     }).catch(function (err) { toast(driveMessage(err)); });
   }
 
@@ -648,6 +719,17 @@
     }).finally(function () { btn.disabled = false; });
   });
 
+  document.getElementById('btnNewFolder').addEventListener('click', newFolder);
+
+  // Compartir desde la previsualización: se cierra antes de abrir la otra
+  // modal, que dos telones apilados no dejan ver ni el aviso del toast.
+  document.getElementById('btnPreviewShare').addEventListener('click', function () {
+    if (!previewing) return;
+    var item = previewing;
+    previewDialog.close();
+    openShare(item, 'file');
+  });
+
   document.getElementById('btnRefresh').addEventListener('click', function () {
     if (folderId) reload().catch(function (err) { toast(driveMessage(err)); });
   });
@@ -666,10 +748,6 @@
     if (!folderId) return;
     var here = trail.length ? trail[trail.length - 1].name : Drive.folderName;
     openShare({ id: folderId, name: here }, 'folder');
-  });
-
-  shareDialog.addEventListener('click', function (event) {
-    if (event.target.closest('[data-close-dialog]')) shareDialog.close();
   });
 
   document.getElementById('btnCopyShare').addEventListener('click', async function () {
