@@ -15,6 +15,41 @@ const FILE_ID = '1AbCdEfGhIjKlMnOpQrStUvWxYz012345';
 
 /* ------------------------------------------------------ atajo de la portada */
 
+// Sin haber cargado nada tiene que haber camino a la carpeta: la tarjeta del
+// resultado vive dentro de #result, que está oculto hasta que hay un SVG.
+test('se puede ir a la carpeta sin haber cargado ninguna imagen', async ({ page }) => {
+  await mockGoogle(page);
+  await page.goto('/');
+
+  await expect(page.locator('#result')).toBeHidden();
+  const link = page.locator('#accountLink');
+  await expect(link).toBeVisible();
+  await expect(link).toHaveAttribute('href', './account/');
+});
+
+test('el enlace de cabecera lleva de verdad a la carpeta', async ({ page }) => {
+  await mockGoogle(page);
+  await page.goto('/');
+  await page.locator('#accountLink').click();
+
+  await expect(page).toHaveURL(/\/account\/$/);
+  await expect(page.locator('#signinBox')).toBeVisible();
+});
+
+test('sin credenciales no hay enlace de cabecera', async ({ page }) => {
+  await page.goto('/');
+  await expect(page.locator('#accountLink')).toBeHidden();
+});
+
+test('tras cargar un SVG conviven los dos caminos', async ({ page }) => {
+  await mockGoogle(page);
+  await page.goto('/');
+  await upload(page, 'cuadrado.svg', PLAIN);
+
+  await expect(page.locator('#accountLink')).toBeVisible();
+  await expect(page.locator('#driveLink')).toBeVisible();
+});
+
 test('con las dos credenciales la portada enlaza a la carpeta', async ({ page }) => {
   await mockGoogle(page);
   await page.goto('/');

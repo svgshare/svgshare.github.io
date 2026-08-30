@@ -58,7 +58,9 @@ El enlace de Drive mide lo mismo pese lo que pese el SVG, lo que además lo hace
 apto para códigos QR. A cambio, el enlace es mortal: muere si el usuario borra el
 fichero o le retira el permiso público.
 
-La portada no guarda nada en Drive: solo enlaza a `/account/`. Ahí, sin sesión, lo
+La portada no guarda nada en Drive: solo enlaza a `/account/`, con un enlace en
+la cabecera que está siempre —no hace falta haber cargado un SVG— y una tarjeta
+en el resultado que además avisa cuando el enlace autocontenido se pone largo. Ahí, sin sesión, lo
 primero es un botón de **entrar con Google**. El token vive solo en memoria, así
 que cada visita empieza pidiéndolo de nuevo — en silencio si ya hay consentimiento.
 

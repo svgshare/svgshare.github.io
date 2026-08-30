@@ -291,6 +291,7 @@
     var optMinify = document.getElementById('optMinify');
     var driveLink = document.getElementById('driveLink');
     var driveSub = document.getElementById('driveSub');
+    var accountLink = document.getElementById('accountLink');
 
     var current = null;   // { name, text }
     var token = 0;
@@ -298,7 +299,10 @@
     creator.hidden = false;
     // Saving to Drive lives in /account/ now; the creator only points at it,
     // and only when this deployment can both store and serve those links.
+    // El de la cabecera está siempre; el de la tarjeta solo tras cargar un SVG,
+    // porque su trabajo es otro: avisar cuando el enlace se pone largo.
     driveLink.hidden = !Drive.canShorten();
+    accountLink.hidden = !Drive.canShorten();
 
     function show(name, text) {
       current = { name: name, text: text };

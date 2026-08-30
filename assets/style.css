@@ -562,7 +562,17 @@ main { display: flex; flex-direction: column; gap: 16px; }
   font-size: 13px;
   text-decoration: none;
 }
-.back:hover { color: var(--fg); }
+.back:hover { color: var(--text); }
+
+/* Barra superior de la portada: el camino a la carpeta sin haber cargado nada. */
+.topbar { display: flex; justify-content: flex-end; min-height: 20px; }
+.to-account {
+  color: var(--muted);
+  font-size: 13px;
+  text-decoration: none;
+  padding: 2px 0;
+}
+.to-account:hover { color: var(--text); }
 
 .signin { display: flex; flex-direction: column; gap: 14px; align-items: flex-start; }
 .signin-copy { margin: 0; font-size: 14px; line-height: 1.5; }
