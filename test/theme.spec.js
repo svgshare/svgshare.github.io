@@ -172,7 +172,9 @@ test('las tarjetas de la carpeta no parpadean rotas mientras se piden', async ({
   await mockGoogle(page, { files: [{ name: 'logo.svg' }] });
   await page.goto('/account/');
   await page.locator('#btnSignin').click();
-  await page.locator('.tile').first().waitFor();
+  // El hueco de añadir también es .tile y está desde el principio: hay que
+  // esperar a la tarjeta de la imagen, que es la que trae el <img>.
+  await page.locator('.tile:not(.tile-add)').first().waitFor();
 
   // Nada más existir la tarjeta, el <img> aún no tiene src: no debe ocupar.
   const antes = await page.evaluate(() => {
