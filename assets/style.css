@@ -20,8 +20,13 @@
   --checker: #f0f0f6;
 }
 
+:root { color-scheme: light dark; }
+
+/* El tema oscuro se define una sola vez y se aplica por dos caminos: el del
+   sistema —salvo que haya una elección explícita de claro, que debe ganar— y el
+   del atributo que escribe theme.js. */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg: #0e0e14;
     --surface: #17171f;
     --surface-2: #20202a;
@@ -34,6 +39,22 @@
     --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 8px 24px -12px rgb(0 0 0 / .6);
   }
 }
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e0e14;
+  --surface: #17171f;
+  --surface-2: #20202a;
+  --border: #2c2c39;
+  --text: #ecedf3;
+  --muted: #9a9ab0;
+  --accent: #8f74ff;
+  --accent-ink: #14101f;
+  --accent-soft: #241f3d;
+  --shadow: 0 1px 2px rgb(0 0 0 / .4), 0 8px 24px -12px rgb(0 0 0 / .6);
+}
+
+:root[data-theme="light"] { color-scheme: light; }
 
 * { box-sizing: border-box; }
 
@@ -136,6 +157,12 @@ main { display: flex; flex-direction: column; gap: 16px; }
   max-height: 100%;
   display: block;
 }
+/* Un <img> sin src pinta el icono de imagen rota. Todas estas imágenes reciben
+   el suyo desde JS —tras descomprimir el enlace o traer el fichero de Drive—,
+   así que hasta entonces no deben ocupar ni verse. */
+.preview img:not([src]),
+.stage img:not([src]),
+.tile-art img:not([src]) { display: none; }
 
 [data-bg="checker"] {
   background-color: var(--canvas);
@@ -353,7 +380,43 @@ main { display: flex; flex-direction: column; gap: 16px; }
   padding: 1px 5px;
 }
 
-.foot { text-align: center; color: var(--muted); font-size: 12px; }
+.foot {
+  text-align: center;
+  color: var(--muted);
+  font-size: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ---------- selector de tema ---------- */
+.theme-switch {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+.theme-switch button {
+  appearance: none;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  line-height: 1.4;
+}
+.theme-switch button:hover { color: var(--text); }
+.theme-switch button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.viewer .foot { padding: 0 16px 12px; }
 
 /* ---------- viewer ---------- */
 .viewer {
@@ -522,7 +585,7 @@ main { display: flex; flex-direction: column; gap: 16px; }
 
 .drop-compact { padding: 20px 16px; }
 .folder-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-.folder-actions .btn { flex: 1; min-width: 140px; }
+.folder-actions .btn { flex: 1; min-width: 120px; white-space: nowrap; }
 
 .empty { color: var(--muted); font-size: 14px; text-align: center; padding: 24px 0; }
 
@@ -582,3 +645,60 @@ main { display: flex; flex-direction: column; gap: 16px; }
 .linkish.is-danger { color: var(--bad); }
 
 #shareDialog .link { margin-top: 10px; }
+
+/* ---------- migas y carpetas ---------- */
+.crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: var(--muted);
+}
+.crumbs a { color: var(--muted); text-decoration: none; }
+.crumbs a:hover { color: var(--fg); text-decoration: underline; }
+.crumbs .sep { opacity: .5; }
+.crumbs .here { color: var(--fg); font-weight: 600; }
+
+/* Las carpetas van en lista: no hay nada que previsualizar, y una rejilla de
+   iconos iguales ocupa mucho para lo que dice. */
+.folders { list-style: none; margin: 0 0 12px; padding: 0; }
+.folders:empty { display: none; }
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+.row-open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+.row-open svg { flex: none; width: 22px; height: 22px; color: var(--muted); }
+.row-open:hover svg { color: var(--accent); }
+.row-name {
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.row-meta {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+.row-actions { flex: none; display: flex; gap: 12px; }

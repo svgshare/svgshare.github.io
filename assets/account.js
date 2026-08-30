@@ -17,7 +17,9 @@
   var S = self.SVGShare;
   var MAX_INPUT_BYTES = 2 * 1024 * 1024;
 
-  var folderId = null;
+  var rootId = null;    // la carpeta SVGshare
+  var folderId = null;  // la que se está viendo (puede ser una subcarpeta)
+  var trail = [];       // rastro de migas: [{ id, name }]
   var items = [];
   var sharing = null;   // { id, kind: 'file' | 'folder', name }
 
@@ -81,6 +83,12 @@
     return baseUrl() + 'account/?f=' + encodeURIComponent(id);
   }
 
+  // Navegación por carpetas propias: ?id= para que atrás y recargar funcionen.
+  function ownLink(id) {
+    return id && id !== rootId ? baseUrl() + 'account/?id=' + encodeURIComponent(id)
+      : baseUrl() + 'account/';
+  }
+
   function queryParams() {
     var params = {};
     location.search.replace(/^\?/, '').split('&').forEach(function (part) {
@@ -93,6 +101,7 @@
   /* ------------------------------------------------------------------ vista */
 
   var grid = document.getElementById('grid');
+  var folderList = document.getElementById('folders');
   var emptyNote = document.getElementById('emptyNote');
   var folderBox = document.getElementById('folderBox');
   var signinBox = document.getElementById('signinBox');
@@ -101,6 +110,66 @@
 
   // Cada tarjeta pinta el SVG ya saneado, en un <img data:> igual que el visor:
   // ahí el navegador no ejecuta scripts ni deja salir peticiones de red.
+  var FOLDER_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+    '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>';
+
+  // Una carpeta no tiene nada que previsualizar, así que va en una lista con
+  // icono: una rejilla de iconos idénticos ocupa mucho y no dice nada.
+  function row(item, readOnly) {
+    var li = document.createElement('li');
+    li.className = 'row';
+    li.dataset.id = item.id;
+
+    var open = document.createElement('a');
+    open.className = 'row-open';
+    open.href = readPublic ? folderLink(item.id) : ownLink(item.id);
+    open.innerHTML = FOLDER_ICON;
+
+    var name = document.createElement('span');
+    name.className = 'row-name';
+    name.textContent = item.name;
+    name.title = item.name;
+    open.appendChild(name);
+
+    if (item.shared) {
+      var badge = document.createElement('span');
+      badge.className = 'row-meta';
+      badge.textContent = 'compartida';
+      open.appendChild(badge);
+    }
+
+    if (!readPublic) {
+      open.addEventListener('click', function (event) {
+        event.preventDefault();
+        enterFolder(item.id, item.name);
+      });
+    }
+    li.appendChild(open);
+
+    if (!readOnly) {
+      var actions = document.createElement('div');
+      actions.className = 'row-actions';
+
+      var share = document.createElement('button');
+      share.type = 'button';
+      share.className = 'linkish';
+      share.textContent = item.shared ? 'Enlace' : 'Compartir';
+      share.addEventListener('click', function () { openShare(item, 'folder'); });
+
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'linkish is-danger';
+      del.textContent = 'Borrar';
+      del.addEventListener('click', function () { removeItem(item); });
+
+      actions.appendChild(share);
+      actions.appendChild(del);
+      li.appendChild(actions);
+    }
+    return li;
+  }
+
   function card(item, readOnly) {
     var li = document.createElement('li');
     li.className = 'tile';
@@ -127,10 +196,7 @@
     name.title = item.name;
     var size = document.createElement('span');
     size.className = 'tile-size';
-    size.textContent = [
-      item.size ? S.formatBytes(Number(item.size)) : null,
-      item.shared ? 'compartido' : null
-    ].filter(Boolean).join(' · ');
+    size.textContent = describe(item);
     meta.appendChild(name);
     meta.appendChild(size);
 
@@ -163,6 +229,13 @@
     return li;
   }
 
+  function describe(item) {
+    return [
+      item.size ? S.formatBytes(Number(item.size)) : null,
+      item.shared ? 'compartido' : null
+    ].filter(Boolean).join(' · ');
+  }
+
   var readPublic = false;
 
   function paint(item, img) {
@@ -176,8 +249,50 @@
 
   function render(readOnly) {
     grid.textContent = '';
-    items.forEach(function (item) { grid.appendChild(card(item, readOnly)); });
+    folderList.textContent = '';
+
+    var byName = function (a, b) { return a.name.localeCompare(b.name, 'es'); };
+    var folders = items.filter(Drive.isFolder).sort(byName);
+    var files = items.filter(function (x) { return !Drive.isFolder(x); }).sort(byName);
+
+    // Carpetas arriba, en lista; las imágenes debajo, en rejilla.
+    folders.forEach(function (item) { folderList.appendChild(row(item, readOnly)); });
+    files.forEach(function (item) { grid.appendChild(card(item, readOnly)); });
+
     show(emptyNote, items.length === 0);
+    renderCrumbs();
+  }
+
+  // El rastro solo aparece cuando se ha bajado de la raíz.
+  function renderCrumbs() {
+    var box = document.getElementById('crumbs');
+    box.textContent = '';
+    if (readPublic || trail.length < 2) { box.hidden = true; return; }
+
+    trail.forEach(function (step, i) {
+      if (i) {
+        var sep = document.createElement('span');
+        sep.className = 'sep';
+        sep.textContent = '/';
+        box.appendChild(sep);
+      }
+      if (i === trail.length - 1) {
+        var here = document.createElement('span');
+        here.className = 'here';
+        here.textContent = step.name;
+        box.appendChild(here);
+      } else {
+        var link = document.createElement('a');
+        link.href = ownLink(step.id);
+        link.textContent = step.name;
+        link.addEventListener('click', function (event) {
+          event.preventDefault();
+          goTo(i);
+        });
+        box.appendChild(link);
+      }
+    });
+    box.hidden = false;
   }
 
   /* ------------------------------------------------------------------ cuota */
@@ -234,21 +349,34 @@
   }
 
   function refreshTile(item) {
-    var li = grid.querySelector('[data-id="' + item.id + '"]');
+    var li = document.querySelector('#grid [data-id="' + item.id + '"], ' +
+      '#folders [data-id="' + item.id + '"]');
     if (!li) return;
-    var btn = li.querySelector('.tile-actions .linkish');
+    var btn = li.querySelector('.linkish');
     if (btn) btn.textContent = item.shared ? 'Enlace' : 'Compartir';
     var size = li.querySelector('.tile-size');
-    if (size) {
-      size.textContent = [
-        item.size ? S.formatBytes(Number(item.size)) : null,
-        item.shared ? 'compartido' : null
-      ].filter(Boolean).join(' · ');
+    if (size) size.textContent = describe(item);
+    // En una carpeta la marca de compartida es una insignia, no una línea.
+    if (li.classList.contains('row')) {
+      var badge = li.querySelector('.row-meta');
+      if (item.shared && !badge) {
+        badge = document.createElement('span');
+        badge.className = 'row-meta';
+        badge.textContent = 'compartida';
+        li.querySelector('.row-open').appendChild(badge);
+      } else if (!item.shared && badge) {
+        badge.remove();
+      }
     }
   }
 
+  // Borrar una carpeta en Drive se lleva por delante lo que hay dentro, así que
+  // la pregunta tiene que decirlo.
   function removeItem(item) {
-    if (!confirm('¿Borrar «' + item.name + '» de tu Drive? No se puede deshacer.')) return;
+    var question = Drive.isFolder(item)
+      ? '¿Borrar la carpeta «' + item.name + '» y todo su contenido? No se puede deshacer.'
+      : '¿Borrar «' + item.name + '» de tu Drive? No se puede deshacer.';
+    if (!confirm(question)) return;
     Drive.remove(item.id).then(function () {
       items = items.filter(function (x) { return x.id !== item.id; });
       render(false);
@@ -289,10 +417,81 @@
 
   function reload() {
     return Drive.listFolder(folderId).then(function (files) {
-      items = files.filter(function (f) { return f.mimeType !== 'application/vnd.google-apps.folder'; });
+      items = files;
       render(false);
       return Drive.quota().then(renderQuota).catch(function () {});
     });
+  }
+
+  /* ---------------------------------------------------------- navegación */
+
+  function enterFolder(id, name) {
+    folderId = id;
+    trail.push({ id: id, name: name });
+    history.pushState({ id: id }, '', ownLink(id));
+    items = [];
+    render(false);
+    reload().catch(function (err) { toast(driveMessage(err)); });
+  }
+
+  // Volver a un punto del rastro: se recorta y se recarga.
+  function goTo(index) {
+    trail = trail.slice(0, index + 1);
+    folderId = trail[trail.length - 1].id;
+    history.pushState({ id: folderId }, '', ownLink(folderId));
+    items = [];
+    render(false);
+    reload().catch(function (err) { toast(driveMessage(err)); });
+  }
+
+  // El botón «atrás» del navegador tiene que funcionar dentro de la carpeta.
+  window.addEventListener('popstate', function () {
+    if (readPublic || !rootId) return;
+    var target = queryParams().id || rootId;
+    var known = trail.map(function (step) { return step.id; }).indexOf(target);
+    if (known !== -1) {
+      trail = trail.slice(0, known + 1);
+      folderId = target;
+      items = [];
+      render(false);
+      reload().catch(function () {});
+    } else {
+      openFolder(target);
+    }
+  });
+
+  // Abrir una carpeta por su id, sin rastro previo (enlace directo o «atrás»
+  // a un punto que ya no está en el rastro).
+  function openFolder(id) {
+    folderId = id;
+    items = [];
+    if (id === rootId) {
+      trail = [{ id: rootId, name: Drive.folderName }];
+      render(false);
+      return reload().catch(function (err) { toast(driveMessage(err)); });
+    }
+    return Drive.meta(id).then(function (info) {
+      trail = [{ id: rootId, name: Drive.folderName }, { id: id, name: info.name }];
+      render(false);
+      return reload();
+    }).catch(function (err) {
+      toast(driveMessage(err));
+      folderId = rootId;
+      trail = [{ id: rootId, name: Drive.folderName }];
+      return reload().catch(function () {});
+    });
+  }
+
+  function newFolder() {
+    var name = prompt('Nombre de la nueva carpeta');
+    if (name === null) return;
+    name = name.trim();
+    if (!name) return toast('Hace falta un nombre');
+
+    Drive.createFolder(name, folderId).then(function () {
+      toast('Carpeta creada');
+      return reload();
+    }).catch(function (err) { toast(driveMessage(err)); });
   }
 
   /* ------------------------------------------------------------- arranque */
@@ -302,8 +501,9 @@
     show(folderBox, true);
 
     Drive.ensureFolder().then(function (id) {
-      folderId = id;
-      return reload();
+      rootId = id;
+      var wanted = queryParams().id;
+      return openFolder(Drive.isFileId(wanted) ? wanted : id);
     }).catch(function (err) {
       show(folderBox, false);
       show(signinBox, true);
@@ -337,7 +537,7 @@
     show(folderBox, true);
 
     Drive.listPublic(id).then(function (files) {
-      items = files.filter(function (f) { return f.mimeType !== 'application/vnd.google-apps.folder'; });
+      items = files;
       render(true);
     }).catch(function (err) {
       emptyNote.textContent = err && err.message === 'not-configured'
@@ -377,8 +577,12 @@
     if (folderId) reload().catch(function (err) { toast(driveMessage(err)); });
   });
 
+  document.getElementById('btnNewFolder').addEventListener('click', newFolder);
+
   document.getElementById('btnShareFolder').addEventListener('click', function () {
-    if (folderId) openShare({ id: folderId, name: Drive.folderName }, 'folder');
+    if (!folderId) return;
+    var here = trail.length ? trail[trail.length - 1].name : Drive.folderName;
+    openShare({ id: folderId, name: here }, 'folder');
   });
 
   shareDialog.addEventListener('click', function (event) {

@@ -75,7 +75,7 @@ test('la portada ya no ofrece guardar en Drive', async ({ page }) => {
 
 test('el visor lee el fichero público sin sesión, con API key', async ({ page }) => {
   const state = await mockGoogle(page, { files: [{ name: 'logo.svg', shared: true }] });
-  const id = [...state.store.keys()][0];
+  const id = state.files[0].id;
   await page.goto(`/?d=${id}&n=logo.svg`);
 
   await expect(page.locator('#viewer')).toBeVisible();
@@ -100,7 +100,7 @@ test('el SVG traído de Drive pasa por el mismo saneador', async ({ page }) => {
         '<rect width="10" height="10"/></svg>'
     }]
   });
-  await page.goto(`/?d=${[...state.store.keys()][0]}`);
+  await page.goto(`/?d=${state.files[0].id}`);
   await expect(page.locator('#stageImg')).toBeVisible();
 
   const src = await page.locator('#stageImg').getAttribute('src');

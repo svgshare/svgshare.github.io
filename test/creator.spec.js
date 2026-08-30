@@ -51,7 +51,9 @@ test('el saneador quita scripts, handlers y referencias externas', async ({ page
 
   const url = await linkOf(page);
   await openLink(page, url);
-  const source = await page.evaluate(async () => {
+  // El visor rellena el código cuando termina de decodificar el enlace.
+  await expect(page.locator('#stageImg')).toHaveAttribute('src', /^data:/);
+  const source = await page.evaluate(() => {
     document.getElementById('btnSource').click();
     return document.getElementById('sourceCode').textContent;
   });
@@ -78,6 +80,7 @@ test('optimizar quita comentarios, metadata y namespaces de editor', async ({ pa
   expect(short.length).toBeLessThan(long.length);
 
   await openLink(page, short);
+  await expect(page.locator('#stageImg')).toHaveAttribute('src', /^data:/);
   const source = await page.evaluate(() => {
     document.getElementById('btnSource').click();
     return document.getElementById('sourceCode').textContent;
