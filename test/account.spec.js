@@ -16,6 +16,7 @@ async function signIn(page) {
   await page.locator('#folderBox').waitFor({ state: 'visible' });
   await page.waitForFunction(() =>
     document.getElementById('grid').children.length > 0 ||
+    document.getElementById('folders').children.length > 0 ||
     !document.getElementById('emptyNote').hidden);
 }
 
@@ -305,9 +306,11 @@ test('crear una carpeta la añade a la vista', async ({ page }) => {
   page.on('dialog', (dialog) => dialog.accept('Logos'));
   await page.locator('#btnNewFolder').click();
 
-  await expect(page.locator('.tile.is-folder')).toHaveCount(1);
-  await expect(page.locator('.tile-name')).toHaveText('Logos');
-  await expect(page.locator('.tile-size')).toHaveText('carpeta');
+  await expect(page.locator('.row')).toHaveCount(1);
+  await expect(page.locator('.row-name')).toHaveText('Logos');
+  // Una carpeta se lista, no se previsualiza.
+  await expect(page.locator('.row img')).toHaveCount(0);
+  await expect(page.locator('.row-open svg')).toBeVisible();
   expect(state.folders.some((f) => f.name === 'Logos' && f.parent === state.folderId)).toBe(true);
 });
 
@@ -318,7 +321,7 @@ test('cancelar el nombre no crea nada', async ({ page }) => {
 
   page.on('dialog', (dialog) => dialog.dismiss());
   await page.locator('#btnNewFolder').click();
-  await expect(page.locator('.tile')).toHaveCount(0);
+  await expect(page.locator('.row')).toHaveCount(0);
   expect(state.folders).toHaveLength(1);   // solo la raíz
 });
 
@@ -333,13 +336,26 @@ test('un nombre vacío se rechaza', async ({ page }) => {
   expect(state.folders).toHaveLength(1);
 });
 
-test('las carpetas se listan antes que las imágenes', async ({ page }) => {
+test('las carpetas van en lista, encima de la rejilla de imágenes', async ({ page }) => {
   await mockGoogle(page, {
-    files: [{ name: 'zeta.svg' }, { name: 'Logos', folder: true }, { name: 'alfa.svg' }]
+    files: [
+      { name: 'zeta.svg' }, { name: 'Logos', folder: true },
+      { name: 'alfa.svg' }, { name: 'Iconos', folder: true }
+    ]
   });
   await page.goto('/account/');
   await signIn(page);
-  await expect(page.locator('.tile-name')).toHaveText(['Logos', 'alfa.svg', 'zeta.svg']);
+
+  await expect(page.locator('.row-name')).toHaveText(['Iconos', 'Logos']);
+  await expect(page.locator('.tile-name')).toHaveText(['alfa.svg', 'zeta.svg']);
+
+  // La lista de carpetas va antes que la rejilla en el documento.
+  const orden = await page.evaluate(() => {
+    const folders = document.getElementById('folders');
+    const grid = document.getElementById('grid');
+    return folders.compareDocumentPosition(grid) & Node.DOCUMENT_POSITION_FOLLOWING ? 'antes' : 'después';
+  });
+  expect(orden).toBe('antes');
 });
 
 test('entrar en una carpeta muestra su contenido y las migas', async ({ page }) => {
@@ -354,7 +370,7 @@ test('entrar en una carpeta muestra su contenido y las migas', async ({ page }) 
   await signIn(page);
   await expect(page.locator('#crumbs')).toBeHidden();
 
-  await page.locator('.tile.is-folder .tile-open').click();
+  await page.locator('.row-open').click();
 
   await expect(page.locator('.tile-name')).toHaveText('dentro.svg');
   await expect(page.locator('#crumbs')).toBeVisible();
@@ -369,11 +385,12 @@ test('las migas vuelven a la raíz', async ({ page }) => {
   });
   await page.goto('/account/');
   await signIn(page);
-  await page.locator('.tile.is-folder .tile-open').click();
+  await page.locator('.row-open').click();
   await expect(page.locator('#crumbs .here')).toHaveText('Logos');
 
   await page.locator('#crumbs a').click();
-  await expect(page.locator('.tile-name')).toHaveText(['Logos', 'raiz.svg']);
+  await expect(page.locator('.row-name')).toHaveText('Logos');
+  await expect(page.locator('.tile-name')).toHaveText('raiz.svg');
   await expect(page.locator('#crumbs')).toBeHidden();
 });
 
@@ -383,11 +400,12 @@ test('el botón atrás del navegador sale de la carpeta', async ({ page }) => {
   });
   await page.goto('/account/');
   await signIn(page);
-  await page.locator('.tile.is-folder .tile-open').click();
+  await page.locator('.row-open').click();
   await expect(page.locator('#crumbs .here')).toHaveText('Logos');
 
   await page.goBack();
-  await expect(page.locator('.tile-name')).toHaveText(['Logos', 'raiz.svg']);
+  await expect(page.locator('.row-name')).toHaveText('Logos');
+  await expect(page.locator('.tile-name')).toHaveText('raiz.svg');
 });
 
 test('un enlace directo a una subcarpeta la abre con su rastro', async ({ page }) => {
@@ -406,7 +424,7 @@ test('subir dentro de una carpeta la usa como destino', async ({ page }) => {
   const state = await mockGoogle(page, { files: [{ name: 'Logos', folder: true }] });
   await page.goto('/account/');
   await signIn(page);
-  await page.locator('.tile.is-folder .tile-open').click();
+  await page.locator('.row-open').click();
   await expect(page.locator('#crumbs .here')).toHaveText('Logos');
 
   await page.setInputFiles('#file', {
@@ -422,7 +440,7 @@ test('compartir estando dentro comparte esa subcarpeta, no la raíz', async ({ p
   const state = await mockGoogle(page, { files: [{ name: 'Logos', folder: true }] });
   await page.goto('/account/');
   await signIn(page);
-  await page.locator('.tile.is-folder .tile-open').click();
+  await page.locator('.row-open').click();
   await expect(page.locator('#crumbs .here')).toHaveText('Logos');
 
   await page.locator('#btnShareFolder').click();
@@ -442,9 +460,9 @@ test('borrar una carpeta avisa de que se lleva el contenido', async ({ page }) =
 
   let question = '';
   page.on('dialog', (dialog) => { question = dialog.message(); dialog.accept(); });
-  await page.locator('.tile.is-folder .is-danger').click();
+  await page.locator('.row .is-danger').click();
 
-  await expect(page.locator('.tile')).toHaveCount(0);
+  await expect(page.locator('.row')).toHaveCount(0);
   expect(question).toContain('todo su contenido');
   expect(state.files).toHaveLength(0);
 });

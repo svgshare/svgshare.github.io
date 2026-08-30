@@ -41,6 +41,9 @@ Desde esa vista se puede subir SVG, previsualizarlos, **crear subcarpetas** y
 navegar por ellas, **compartir una imagen o una carpeta entera** con un enlace,
 dejar de compartirlos, borrarlos, y ver cuánto espacio ocupan en la cuenta.
 
+Las carpetas se listan arriba en filas con icono —no hay nada que previsualizar
+en una carpeta— y las imágenes debajo, en una rejilla de miniaturas.
+
 La navegación va en la URL (`/account/?id=<folderId>`), así que recargar y el
 botón «atrás» del navegador funcionan como se espera. Compartir estando dentro de
 una subcarpeta comparte **esa**, no la raíz.

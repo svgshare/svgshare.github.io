@@ -101,6 +101,7 @@
   /* ------------------------------------------------------------------ vista */
 
   var grid = document.getElementById('grid');
+  var folderList = document.getElementById('folders');
   var emptyNote = document.getElementById('emptyNote');
   var folderBox = document.getElementById('folderBox');
   var signinBox = document.getElementById('signinBox');
@@ -113,39 +114,79 @@
     'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>';
 
-  function card(item, readOnly) {
-    var folder = Drive.isFolder(item);
+  // Una carpeta no tiene nada que previsualizar, así que va en una lista con
+  // icono: una rejilla de iconos idénticos ocupa mucho y no dice nada.
+  function row(item, readOnly) {
     var li = document.createElement('li');
-    li.className = 'tile' + (folder ? ' is-folder' : '');
+    li.className = 'row';
     li.dataset.id = item.id;
 
-    var figure = document.createElement('div');
-    figure.className = 'tile-art' + (folder ? ' is-folder' : '');
-    var img = null;
-    if (folder) {
-      figure.innerHTML = FOLDER_ICON;
-    } else {
-      figure.dataset.bg = 'checker';
-      img = document.createElement('img');
-      img.alt = item.name;
-      img.loading = 'lazy';
-      figure.appendChild(img);
+    var open = document.createElement('a');
+    open.className = 'row-open';
+    open.href = readPublic ? folderLink(item.id) : ownLink(item.id);
+    open.innerHTML = FOLDER_ICON;
+
+    var name = document.createElement('span');
+    name.className = 'row-name';
+    name.textContent = item.name;
+    name.title = item.name;
+    open.appendChild(name);
+
+    if (item.shared) {
+      var badge = document.createElement('span');
+      badge.className = 'row-meta';
+      badge.textContent = 'compartida';
+      open.appendChild(badge);
     }
 
-    var open = document.createElement('a');
-    open.className = 'tile-open';
-    open.href = folder
-      ? (readPublic ? folderLink(item.id) : ownLink(item.id))
-      : fileLink(item.id, item.name);
-    open.appendChild(figure);
-
-    // Entrar en una subcarpeta no recarga la página: se navega en el sitio.
-    if (folder && !readPublic) {
+    if (!readPublic) {
       open.addEventListener('click', function (event) {
         event.preventDefault();
         enterFolder(item.id, item.name);
       });
     }
+    li.appendChild(open);
+
+    if (!readOnly) {
+      var actions = document.createElement('div');
+      actions.className = 'row-actions';
+
+      var share = document.createElement('button');
+      share.type = 'button';
+      share.className = 'linkish';
+      share.textContent = item.shared ? 'Enlace' : 'Compartir';
+      share.addEventListener('click', function () { openShare(item, 'folder'); });
+
+      var del = document.createElement('button');
+      del.type = 'button';
+      del.className = 'linkish is-danger';
+      del.textContent = 'Borrar';
+      del.addEventListener('click', function () { removeItem(item); });
+
+      actions.appendChild(share);
+      actions.appendChild(del);
+      li.appendChild(actions);
+    }
+    return li;
+  }
+
+  function card(item, readOnly) {
+    var li = document.createElement('li');
+    li.className = 'tile';
+    li.dataset.id = item.id;
+
+    var figure = document.createElement('div');
+    figure.className = 'tile-art';
+    figure.dataset.bg = 'checker';
+    var img = document.createElement('img');
+    img.alt = item.name;
+    img.loading = 'lazy';
+    figure.appendChild(img);
+
+    var open = document.createElement('a');
+    open.className = 'tile-open';
+    open.href = fileLink(item.id, item.name);
+    open.appendChild(figure);
 
     var meta = document.createElement('div');
     meta.className = 'tile-meta';
@@ -184,13 +225,13 @@
     }
 
     // La previsualización se pide aparte: la lista solo trae metadatos.
-    if (img) paint(item, img);
+    paint(item, img);
     return li;
   }
 
   function describe(item) {
     return [
-      Drive.isFolder(item) ? 'carpeta' : (item.size ? S.formatBytes(Number(item.size)) : null),
+      item.size ? S.formatBytes(Number(item.size)) : null,
       item.shared ? 'compartido' : null
     ].filter(Boolean).join(' · ');
   }
@@ -208,12 +249,16 @@
 
   function render(readOnly) {
     grid.textContent = '';
-    // Carpetas primero, como en cualquier gestor de archivos.
-    items.slice().sort(function (a, b) {
-      var fa = Drive.isFolder(a) ? 0 : 1;
-      var fb = Drive.isFolder(b) ? 0 : 1;
-      return fa - fb || a.name.localeCompare(b.name, 'es');
-    }).forEach(function (item) { grid.appendChild(card(item, readOnly)); });
+    folderList.textContent = '';
+
+    var byName = function (a, b) { return a.name.localeCompare(b.name, 'es'); };
+    var folders = items.filter(Drive.isFolder).sort(byName);
+    var files = items.filter(function (x) { return !Drive.isFolder(x); }).sort(byName);
+
+    // Carpetas arriba, en lista; las imágenes debajo, en rejilla.
+    folders.forEach(function (item) { folderList.appendChild(row(item, readOnly)); });
+    files.forEach(function (item) { grid.appendChild(card(item, readOnly)); });
+
     show(emptyNote, items.length === 0);
     renderCrumbs();
   }
@@ -304,12 +349,25 @@
   }
 
   function refreshTile(item) {
-    var li = grid.querySelector('[data-id="' + item.id + '"]');
+    var li = document.querySelector('#grid [data-id="' + item.id + '"], ' +
+      '#folders [data-id="' + item.id + '"]');
     if (!li) return;
-    var btn = li.querySelector('.tile-actions .linkish');
+    var btn = li.querySelector('.linkish');
     if (btn) btn.textContent = item.shared ? 'Enlace' : 'Compartir';
     var size = li.querySelector('.tile-size');
     if (size) size.textContent = describe(item);
+    // En una carpeta la marca de compartida es una insignia, no una línea.
+    if (li.classList.contains('row')) {
+      var badge = li.querySelector('.row-meta');
+      if (item.shared && !badge) {
+        badge = document.createElement('span');
+        badge.className = 'row-meta';
+        badge.textContent = 'compartida';
+        li.querySelector('.row-open').appendChild(badge);
+      } else if (!item.shared && badge) {
+        badge.remove();
+      }
+    }
   }
 
   // Borrar una carpeta en Drive se lleva por delante lo que hay dentro, así que
