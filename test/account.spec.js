@@ -14,10 +14,8 @@ const TALL = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="1000" 
 async function signIn(page) {
   await page.locator('#btnSignin').click();
   await page.locator('#folderBox').waitFor({ state: 'visible' });
-  await page.waitForFunction(() =>
-    document.getElementById('grid').children.length > 0 ||
-    document.getElementById('folders').children.length > 0 ||
-    !document.getElementById('emptyNote').hidden);
+  // La cuota se pinta al final de reload(): es la señal de que el listado acabó.
+  await page.locator('#quotaBox').waitFor({ state: 'visible' });
 }
 
 /* ------------------------------------------------------------------ entrar */
@@ -36,7 +34,7 @@ test('entrar abre la carpeta y pide solo el scope drive.file', async ({ page }) 
   await signIn(page);
 
   await expect(page.locator('#signinBox')).toBeHidden();
-  await expect(page.locator('.tile')).toHaveCount(1);
+  await expect(page.locator('.tile:not(.tile-add)')).toHaveCount(1);
   const config = await page.evaluate(() => window.__gisConfig);
   expect(config.scope).toBe('https://www.googleapis.com/auth/drive.file');
 });
@@ -78,6 +76,44 @@ test('el token sigue sin tocar localStorage ni cookies', async ({ page }) => {
   expect(stored.cookie).not.toContain('fake-token');
 });
 
+// Recargar no debe obligar a pulsar el botón otra vez: con consentimiento
+// previo Google concede el token sin enseñar nada, y sin guardarlo en disco.
+test('con consentimiento previo se entra sin pulsar nada', async ({ page }) => {
+  await mockGoogle(page, { silentGrant: true, files: [{ name: 'logo.svg' }] });
+  await page.goto('/account/');
+
+  await expect(page.locator('#folderBox')).toBeVisible();
+  await expect(page.locator('#signinBox')).toBeHidden();
+  await expect(page.locator('.tile:not(.tile-add)')).toHaveCount(1);
+  expect(await page.evaluate(() => window.__silentRequests)).toBe(1);
+});
+
+test('sin consentimiento previo el intento silencioso no molesta y sale el botón', async ({ page }) => {
+  await mockGoogle(page);
+  await page.goto('/account/');
+
+  await expect(page.locator('#signinBox')).toBeVisible();
+  await expect(page.locator('#folderBox')).toBeHidden();
+  // Se intentó, y al no poder se cayó al botón sin enseñar ningún error.
+  expect(await page.evaluate(() => window.__silentRequests)).toBe(1);
+  await expect(page.locator('#signinError')).toBeHidden();
+});
+
+test('el token del intento silencioso tampoco se guarda', async ({ page }) => {
+  await mockGoogle(page, { silentGrant: true });
+  await page.goto('/account/');
+  await expect(page.locator('#folderBox')).toBeVisible();
+
+  const stored = await page.evaluate(() => ({
+    local: JSON.stringify(Object.entries(localStorage)),
+    session: JSON.stringify(Object.entries(sessionStorage)),
+    cookie: document.cookie
+  }));
+  expect(stored.local).toBe('[]');
+  expect(stored.session).toBe('[]');
+  expect(stored.cookie).not.toContain('fake-token');
+});
+
 /* ----------------------------------------------------------------- carpeta */
 
 test('la carpeta se crea si no existía', async ({ page }) => {
@@ -87,12 +123,14 @@ test('la carpeta se crea si no existía', async ({ page }) => {
   expect(state.folderCreated).toBe(true);
 });
 
-test('una carpeta vacía lo dice en vez de quedarse en blanco', async ({ page }) => {
+test('una carpeta vacía ofrece el hueco de añadir a todo lo ancho', async ({ page }) => {
   await mockGoogle(page);
   await page.goto('/account/');
   await signIn(page);
-  await expect(page.locator('#emptyNote')).toBeVisible();
-  await expect(page.locator('.tile')).toHaveCount(0);
+
+  await expect(page.locator('#addTile')).toBeVisible();
+  await expect(page.locator('#addTile')).toHaveClass(/is-wide/);
+  await expect(page.locator('.tile:not(.tile-add)')).toHaveCount(0);
 });
 
 test('cada tarjeta muestra nombre, peso y previsualización', async ({ page }) => {
@@ -100,7 +138,7 @@ test('cada tarjeta muestra nombre, peso y previsualización', async ({ page }) =
   await page.goto('/account/');
   await signIn(page);
 
-  await expect(page.locator('.tile')).toHaveCount(2);
+  await expect(page.locator('.tile:not(.tile-add)')).toHaveCount(2);
   // Orden alfabético dentro de cada tipo.
   await expect(page.locator('.tile-name')).toHaveText(['icono.svg', 'logo.svg']);
   await expect(page.locator('.tile-size').first()).toContainText('B');
@@ -182,7 +220,7 @@ test('subir un SVG lo guarda en la carpeta, ya saneado', async ({ page }) => {
     buffer: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">' +
       '<script>window.__pwned = 1;<\/script><rect width="10" height="10"/></svg>')
   });
-  await expect(page.locator('.tile')).toHaveCount(1);
+  await expect(page.locator('.tile:not(.tile-add)')).toHaveCount(1);
 
   const stored = state.files[0];
   expect(stored.name).toBe('nuevo.svg');
@@ -278,9 +316,9 @@ test('borrar quita el fichero de Drive y de la vista, tras confirmar', async ({ 
   await signIn(page);
 
   page.on('dialog', (dialog) => dialog.accept());
-  await page.locator('.tile').first().locator('.is-danger').click();
+  await page.locator('.tile:not(.tile-add)').first().locator('.is-danger').click();
 
-  await expect(page.locator('.tile')).toHaveCount(1);
+  await expect(page.locator('.tile:not(.tile-add)')).toHaveCount(1);
   expect(state.files).toHaveLength(1);
 });
 
@@ -292,8 +330,120 @@ test('cancelar la confirmación no borra nada', async ({ page }) => {
   page.on('dialog', (dialog) => dialog.dismiss());
   await page.locator('.is-danger').click();
 
-  await expect(page.locator('.tile')).toHaveCount(1);
+  await expect(page.locator('.tile:not(.tile-add)')).toHaveCount(1);
   expect(state.files).toHaveLength(1);
+});
+
+/* ------------------------------------------------- hueco de añadir y soltar */
+
+test('el hueco de añadir se encoge a una celda cuando ya hay imágenes', async ({ page }) => {
+  await mockGoogle(page, { files: [{ name: 'logo.svg' }] });
+  await page.goto('/account/');
+  await signIn(page);
+
+  const add = page.locator('#addTile');
+  await expect(add).toBeVisible();
+  await expect(add).not.toHaveClass(/is-wide/);
+
+  // Y va al final, después de las imágenes.
+  const ultimo = await page.evaluate(() =>
+    document.getElementById('grid').lastElementChild.id);
+  expect(ultimo).toBe('addTile');
+});
+
+test('el hueco de añadir abre el selector de archivos', async ({ page }) => {
+  await mockGoogle(page);
+  await page.goto('/account/');
+  await signIn(page);
+
+  const label = page.locator('#addTile label');
+  await expect(label).toHaveAttribute('for', 'file');
+  expect(await page.locator('#file').count()).toBe(1);
+});
+
+test('toda la zona de contenido es zona de soltar', async ({ page }) => {
+  await mockGoogle(page, { files: [{ name: 'logo.svg' }] });
+  await page.goto('/account/');
+  await signIn(page);
+
+  const zone = page.locator('#folderContent');
+  await expect(zone).not.toHaveClass(/is-over/);
+
+  await page.evaluate(() => {
+    window.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true }));
+  });
+  await expect(zone).toHaveClass(/is-over/);
+
+  await page.evaluate(() => {
+    window.dispatchEvent(new DragEvent('dragleave', { bubbles: true, cancelable: true }));
+  });
+  await expect(zone).not.toHaveClass(/is-over/);
+});
+
+/* ---------------------------------------------------------- zona de riesgo */
+
+test('la zona de riesgo arranca plegada', async ({ page }) => {
+  await mockGoogle(page);
+  await page.goto('/account/');
+  await signIn(page);
+
+  await expect(page.locator('#dangerZone')).toBeVisible();
+  await expect(page.locator('#dangerBody')).toBeHidden();
+  await expect(page.locator('#btnDangerToggle')).toHaveAttribute('aria-expanded', 'false');
+});
+
+test('desplegarla ofrece borrar la carpeta que se está viendo', async ({ page }) => {
+  await mockGoogle(page, { files: [{ name: 'Logos', folder: true }] });
+  await page.goto('/account/');
+  await signIn(page);
+  await page.locator('.row:not(.row-new) .row-open').click();
+  await expect(page.locator('#crumbs .here')).toHaveText('Logos');
+
+  await page.locator('#btnDangerToggle').click();
+  await expect(page.locator('#dangerBody')).toBeVisible();
+  await expect(page.locator('#dangerNote')).toContainText('«Logos»');
+});
+
+test('borrar la carpeta actual sube a la de arriba', async ({ page }) => {
+  const state = await mockGoogle(page, {
+    files: [{ name: 'Logos', folder: true }, { name: 'raiz.svg' }]
+  });
+  await page.goto('/account/');
+  await signIn(page);
+  await page.locator('.row:not(.row-new) .row-open').click();
+  await expect(page.locator('#crumbs .here')).toHaveText('Logos');
+
+  page.on('dialog', (dialog) => dialog.accept());
+  await page.locator('#btnDangerToggle').click();
+  await page.locator('#btnDeleteFolder').click();
+
+  await expect(page.locator('#crumbs')).toBeHidden();
+  await expect(page.locator('.tile-name')).toHaveText('raiz.svg');
+  expect(state.folders.some((f) => f.name === 'Logos')).toBe(false);
+});
+
+test('borrar la raíz la vuelve a crear vacía', async ({ page }) => {
+  const state = await mockGoogle(page, { files: [{ name: 'logo.svg' }] });
+  await page.goto('/account/');
+  await signIn(page);
+
+  page.on('dialog', (dialog) => dialog.accept());
+  await page.locator('#btnDangerToggle').click();
+  await page.locator('#btnDeleteFolder').click();
+
+  await expect(page.locator('#addTile')).toHaveClass(/is-wide/);
+  await expect(page.locator('.tile:not(.tile-add)')).toHaveCount(0);
+  expect(state.files).toHaveLength(0);
+});
+
+test('la cabecera nombra la carpeta en la que se está', async ({ page }) => {
+  await mockGoogle(page, { files: [{ name: 'Logos', folder: true }] });
+  await page.goto('/account/');
+  await signIn(page);
+  await expect(page.locator('#folderName')).toHaveText('SVGshare');
+
+  await page.locator('.row:not(.row-new) .row-open').click();
+  await expect(page.locator('#folderName')).toHaveText('Logos');
 });
 
 /* --------------------------------------------------------------- carpetas */
@@ -306,11 +456,11 @@ test('crear una carpeta la añade a la vista', async ({ page }) => {
   page.on('dialog', (dialog) => dialog.accept('Logos'));
   await page.locator('#btnNewFolder').click();
 
-  await expect(page.locator('.row')).toHaveCount(1);
-  await expect(page.locator('.row-name')).toHaveText('Logos');
+  await expect(page.locator('.row:not(.row-new)')).toHaveCount(1);
+  await expect(page.locator('.row:not(.row-new) .row-name')).toHaveText('Logos');
   // Una carpeta se lista, no se previsualiza.
-  await expect(page.locator('.row img')).toHaveCount(0);
-  await expect(page.locator('.row-open svg')).toBeVisible();
+  await expect(page.locator('.row:not(.row-new) img')).toHaveCount(0);
+  await expect(page.locator('.row:not(.row-new) .row-open svg')).toBeVisible();
   expect(state.folders.some((f) => f.name === 'Logos' && f.parent === state.folderId)).toBe(true);
 });
 
@@ -321,7 +471,7 @@ test('cancelar el nombre no crea nada', async ({ page }) => {
 
   page.on('dialog', (dialog) => dialog.dismiss());
   await page.locator('#btnNewFolder').click();
-  await expect(page.locator('.row')).toHaveCount(0);
+  await expect(page.locator('.row:not(.row-new)')).toHaveCount(0);
   expect(state.folders).toHaveLength(1);   // solo la raíz
 });
 
@@ -346,7 +496,7 @@ test('las carpetas van en lista, encima de la rejilla de imágenes', async ({ pa
   await page.goto('/account/');
   await signIn(page);
 
-  await expect(page.locator('.row-name')).toHaveText(['Iconos', 'Logos']);
+  await expect(page.locator('.row:not(.row-new) .row-name')).toHaveText(['Iconos', 'Logos']);
   await expect(page.locator('.tile-name')).toHaveText(['alfa.svg', 'zeta.svg']);
 
   // La lista de carpetas va antes que la rejilla en el documento.
@@ -370,7 +520,7 @@ test('entrar en una carpeta muestra su contenido y las migas', async ({ page }) 
   await signIn(page);
   await expect(page.locator('#crumbs')).toBeHidden();
 
-  await page.locator('.row-open').click();
+  await page.locator('.row:not(.row-new) .row-open').click();
 
   await expect(page.locator('.tile-name')).toHaveText('dentro.svg');
   await expect(page.locator('#crumbs')).toBeVisible();
@@ -385,11 +535,11 @@ test('las migas vuelven a la raíz', async ({ page }) => {
   });
   await page.goto('/account/');
   await signIn(page);
-  await page.locator('.row-open').click();
+  await page.locator('.row:not(.row-new) .row-open').click();
   await expect(page.locator('#crumbs .here')).toHaveText('Logos');
 
   await page.locator('#crumbs a').click();
-  await expect(page.locator('.row-name')).toHaveText('Logos');
+  await expect(page.locator('.row:not(.row-new) .row-name')).toHaveText('Logos');
   await expect(page.locator('.tile-name')).toHaveText('raiz.svg');
   await expect(page.locator('#crumbs')).toBeHidden();
 });
@@ -400,11 +550,11 @@ test('el botón atrás del navegador sale de la carpeta', async ({ page }) => {
   });
   await page.goto('/account/');
   await signIn(page);
-  await page.locator('.row-open').click();
+  await page.locator('.row:not(.row-new) .row-open').click();
   await expect(page.locator('#crumbs .here')).toHaveText('Logos');
 
   await page.goBack();
-  await expect(page.locator('.row-name')).toHaveText('Logos');
+  await expect(page.locator('.row:not(.row-new) .row-name')).toHaveText('Logos');
   await expect(page.locator('.tile-name')).toHaveText('raiz.svg');
 });
 
@@ -424,13 +574,13 @@ test('subir dentro de una carpeta la usa como destino', async ({ page }) => {
   const state = await mockGoogle(page, { files: [{ name: 'Logos', folder: true }] });
   await page.goto('/account/');
   await signIn(page);
-  await page.locator('.row-open').click();
+  await page.locator('.row:not(.row-new) .row-open').click();
   await expect(page.locator('#crumbs .here')).toHaveText('Logos');
 
   await page.setInputFiles('#file', {
     name: 'nuevo.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(PLAIN)
   });
-  await expect(page.locator('.tile')).toHaveCount(1);
+  await expect(page.locator('.tile:not(.tile-add)')).toHaveCount(1);
 
   const sub = state.folders.find((f) => f.name === 'Logos');
   expect(state.files[0].parent).toBe(sub.id);
@@ -440,7 +590,7 @@ test('compartir estando dentro comparte esa subcarpeta, no la raíz', async ({ p
   const state = await mockGoogle(page, { files: [{ name: 'Logos', folder: true }] });
   await page.goto('/account/');
   await signIn(page);
-  await page.locator('.row-open').click();
+  await page.locator('.row:not(.row-new) .row-open').click();
   await expect(page.locator('#crumbs .here')).toHaveText('Logos');
 
   await page.locator('#btnShareFolder').click();
@@ -462,7 +612,7 @@ test('borrar una carpeta avisa de que se lleva el contenido', async ({ page }) =
   page.on('dialog', (dialog) => { question = dialog.message(); dialog.accept(); });
   await page.locator('.row .is-danger').click();
 
-  await expect(page.locator('.row')).toHaveCount(0);
+  await expect(page.locator('.row:not(.row-new)')).toHaveCount(0);
   expect(question).toContain('todo su contenido');
   expect(state.files).toHaveLength(0);
 });
@@ -517,8 +667,11 @@ test('una carpeta compartida se abre sin sesión y en solo lectura', async ({ pa
   await mockGoogleShared(guest, state);
   await guest.goto(shared);
 
-  await expect(guest.locator('.tile')).toHaveCount(1);
+  await expect(guest.locator('.tile:not(.tile-add)')).toHaveCount(1);
   await expect(guest.locator('#uploadCard')).toBeHidden();
+  await expect(guest.locator('#dangerZone')).toBeHidden();
+  await expect(guest.locator('#addTile')).toBeHidden();
+  await expect(guest.locator('.row-new')).toHaveCount(0);
   await expect(guest.locator('.tile-actions')).toHaveCount(0);
   expect(await guest.evaluate(() => window.__gisConfig)).toBeUndefined();
 });

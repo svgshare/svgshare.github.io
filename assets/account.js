@@ -103,6 +103,7 @@
   var grid = document.getElementById('grid');
   var folderList = document.getElementById('folders');
   var emptyNote = document.getElementById('emptyNote');
+  var addTile = document.getElementById('addTile');
   var folderBox = document.getElementById('folderBox');
   var signinBox = document.getElementById('signinBox');
 
@@ -167,6 +168,30 @@
       actions.appendChild(del);
       li.appendChild(actions);
     }
+    return li;
+  }
+
+  // Crear una carpeta pertenece a la lista de carpetas, no a la cabecera.
+  function newFolderRow() {
+    var li = document.createElement('li');
+    li.className = 'row row-new';
+
+    var button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'row-open row-new-btn';
+    button.id = 'btnNewFolder';
+    button.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+      'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>' +
+      '<path d="M12 11v5M9.5 13.5h5"/></svg>';
+
+    var name = document.createElement('span');
+    name.className = 'row-name';
+    name.textContent = 'Nueva carpeta';
+    button.appendChild(name);
+    button.addEventListener('click', newFolder);
+
+    li.appendChild(button);
     return li;
   }
 
@@ -248,7 +273,10 @@
   }
 
   function render(readOnly) {
-    grid.textContent = '';
+    // El hueco de añadir es del documento, no se recrea en cada pintado.
+    Array.prototype.slice.call(grid.children).forEach(function (child) {
+      if (child !== addTile) child.remove();
+    });
     folderList.textContent = '';
 
     var byName = function (a, b) { return a.name.localeCompare(b.name, 'es'); };
@@ -257,10 +285,26 @@
 
     // Carpetas arriba, en lista; las imágenes debajo, en rejilla.
     folders.forEach(function (item) { folderList.appendChild(row(item, readOnly)); });
-    files.forEach(function (item) { grid.appendChild(card(item, readOnly)); });
+    if (!readOnly) folderList.appendChild(newFolderRow());
+    files.forEach(function (item) { grid.insertBefore(card(item, readOnly), addTile); });
 
-    show(emptyNote, items.length === 0);
+    // Ocupa el ancho mientras no haya imágenes; después, el sitio de una más.
+    addTile.hidden = readOnly;
+    addTile.classList.toggle('is-wide', files.length === 0);
+
+    // En la vista propia el hueco de añadir ya dice que está vacío.
+    show(emptyNote, items.length === 0 && readOnly);
     renderCrumbs();
+    renderHead();
+  }
+
+  // La cabecera nombra la carpeta en la que se está.
+  function renderHead() {
+    var here = trail.length ? trail[trail.length - 1].name : Drive.folderName;
+    document.getElementById('folderName').textContent = here;
+    document.getElementById('dangerNote').textContent = folderId === rootId
+      ? 'Borra la carpeta «' + here + '» y todo lo que hay dentro. Se vuelve a crear vacía la próxima vez que entres.'
+      : 'Borra la carpeta «' + here + '» y todo lo que hay dentro. No se puede deshacer.';
   }
 
   // El rastro solo aparece cuando se ha bajado de la raíz.
@@ -482,6 +526,31 @@
     });
   }
 
+  // La carpeta que se está viendo. Al borrarla hay que salir de ella: si era la
+  // raíz, ensureFolder la vuelve a crear vacía.
+  function deleteCurrentFolder() {
+    var here = trail.length ? trail[trail.length - 1].name : Drive.folderName;
+    if (!confirm('¿Borrar la carpeta «' + here + '» y todo su contenido? No se puede deshacer.')) return;
+
+    var wasRoot = folderId === rootId;
+    Drive.remove(folderId).then(function () {
+      toast('Carpeta borrada');
+      if (wasRoot) {
+        return Drive.ensureFolder().then(function (id) {
+          rootId = id;
+          return openFolder(id);
+        });
+      }
+      trail = trail.slice(0, -1);
+      var parent = trail.length ? trail[trail.length - 1].id : rootId;
+      history.pushState({ id: parent }, '', ownLink(parent));
+      folderId = parent;
+      items = [];
+      render(false);
+      return reload();
+    }).catch(function (err) { toast(driveMessage(err)); });
+  }
+
   function newFolder() {
     var name = prompt('Nombre de la nueva carpeta');
     if (name === null) return;
@@ -534,6 +603,7 @@
     document.getElementById('folderTitle').textContent = 'Carpeta compartida';
     document.getElementById('folderSub').textContent = 'Una selección de SVG compartida con un enlace.';
     document.getElementById('uploadCard').hidden = true;
+    document.getElementById('dangerZone').hidden = true;
     show(folderBox, true);
 
     Drive.listPublic(id).then(function (files) {
@@ -554,18 +624,20 @@
     event.target.value = '';
   });
 
+  var dropZone = document.getElementById('folderContent');
+
   ['dragenter', 'dragover'].forEach(function (type) {
     window.addEventListener(type, function (event) {
       event.preventDefault();
-      var drop = document.getElementById('drop');
-      if (drop) drop.classList.add('is-over');
+      if (folderId) dropZone.classList.add('is-over');
     });
   });
   ['dragleave', 'drop'].forEach(function (type) {
     window.addEventListener(type, function (event) {
       event.preventDefault();
-      var drop = document.getElementById('drop');
-      if (drop) drop.classList.remove('is-over');
+      if (type === 'drop' || event.target === document.documentElement || !event.relatedTarget) {
+        dropZone.classList.remove('is-over');
+      }
     });
   });
   window.addEventListener('drop', function (event) {
@@ -577,7 +649,15 @@
     if (folderId) reload().catch(function (err) { toast(driveMessage(err)); });
   });
 
-  document.getElementById('btnNewFolder').addEventListener('click', newFolder);
+  var dangerToggle = document.getElementById('btnDangerToggle');
+  dangerToggle.addEventListener('click', function () {
+    var body = document.getElementById('dangerBody');
+    var open = body.hidden;
+    body.hidden = !open;
+    dangerToggle.setAttribute('aria-expanded', String(open));
+  });
+
+  document.getElementById('btnDeleteFolder').addEventListener('click', deleteCurrentFolder);
 
   document.getElementById('btnShareFolder').addEventListener('click', function () {
     if (!folderId) return;
@@ -617,9 +697,10 @@
   } else if (!Drive.canShorten()) {
     show(document.getElementById('offBox'), true);
   } else {
-    // Con consentimiento previo Google devuelve el token sin abrir ventana, así
-    // que la sesión sobrevive a una recarga sin haber guardado nada en disco.
-    Drive.getToken(false).then(function (token) {
+    // Recargar no debería obligar a pulsar el botón otra vez. Con consentimiento
+    // previo Google devuelve el token sin enseñar nada, así que la sesión
+    // sobrevive a la recarga sin haber guardado el token en ningún sitio.
+    Drive.getTokenSilently().then(function (token) {
       if (token) startOwn();
       else startSignin();
     }).catch(function () { startSignin(); });

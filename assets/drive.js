@@ -64,6 +64,28 @@
   function getToken(interactive) {
     if (token && token.expiresAt > Date.now() + 60000) return Promise.resolve(token.value);
     if (!interactive) return Promise.resolve(null);
+    return requestToken('');
+  }
+
+  // Intento silencioso: `prompt: 'none'` no enseña nada y solo funciona si ya
+  // hay consentimiento y sesión de Google. Sirve para que recargar la página no
+  // obligue a volver a pulsar el botón, sin guardar el token en ningún sitio.
+  // Si no se puede, falla rápido y la UI enseña el botón.
+  function getTokenSilently() {
+    if (token && token.expiresAt > Date.now() + 60000) return Promise.resolve(token.value);
+    if (!canUpload()) return Promise.resolve(null);
+    return new Promise(function (resolve) {
+      var done = false;
+      var finish = function (value) {
+        if (!done) { done = true; resolve(value); }
+      };
+      // Si Google no contesta, no se deja al usuario mirando una pantalla vacía.
+      setTimeout(function () { finish(null); }, 4000);
+      requestToken('none').then(finish, function () { finish(null); });
+    });
+  }
+
+  function requestToken(prompt) {
     if (!canUpload()) return Promise.reject(new Error('not-configured'));
 
     return loadGis().then(function () {
@@ -89,7 +111,7 @@
           reject(new Error((err && err.type) || 'auth-cancelled'));
         };
         // An empty prompt reuses the existing grant when there is one.
-        tokenClient.requestAccessToken({ prompt: '' });
+        tokenClient.requestAccessToken({ prompt: prompt });
       });
     });
   }
@@ -342,6 +364,7 @@
     isFileId: isFileId,
     fileUrl: fileUrl,
     getToken: getToken,
+    getTokenSilently: getTokenSilently,
     forget: forget,
     save: save,
     upload: upload,

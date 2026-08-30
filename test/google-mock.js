@@ -29,6 +29,10 @@ async function mockGoogle(page, options = {}) {
     apiKey: 'test-api-key',
     authError: null,
     gisReachable: true,
+    // Consentimiento previo: el intento silencioso (prompt: 'none') funciona y
+    // la página entra sin enseñar el botón. Por defecto no, como una primera
+    // visita.
+    silentGrant: false,
     files: [],              // [{ name, content, shared }] ya en la carpeta
     folderMissing: false,   // la carpeta SVGshare aún no existe
     quota: { usage: 3 * 1024 * 1024 * 1024, limit: 15 * 1024 * 1024 * 1024 },
@@ -85,10 +89,17 @@ async function mockGoogle(page, options = {}) {
           return {
             callback: config.callback,
             error_callback: null,
-            requestAccessToken: function () {
+            requestAccessToken: function (options) {
               var self = this;
+              var silent = options && options.prompt === 'none';
               window.__authRequests = (window.__authRequests || 0) + 1;
+              if (silent) window.__silentRequests = (window.__silentRequests || 0) + 1;
               setTimeout(function () {
+                if (silent && !${opts.silentGrant ? 'true' : 'false'}) {
+                  // Sin consentimiento previo Google no puede darlo sin enseñar nada.
+                  if (self.error_callback) self.error_callback({ type: 'consent_required' });
+                  return;
+                }
                 ${opts.authError
                   ? `if (self.error_callback) self.error_callback({ type: ${JSON.stringify(opts.authError)} });`
                   : `self.callback({ access_token: 'fake-token', expires_in: 3600 });`}

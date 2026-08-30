@@ -153,6 +153,20 @@ test('la caja adopta la proporción del SVG cuando cabe', async ({ page }) => {
   expect(box.width / box.height).toBeCloseTo(1.5, 1);
 });
 
+// Es un objetivo que se pulsa: tiene que responder al puntero, no solo al foco.
+test('la zona de carga reacciona al pasar el puntero', async ({ page }) => {
+  const drop = page.locator('#drop');
+  const leer = () => drop.evaluate((el) => {
+    const s = getComputedStyle(el);
+    return s.borderTopColor + ' | ' + s.backgroundColor;
+  });
+
+  const reposo = await leer();
+  await drop.hover();
+  // Hay una transición de .15s: el valor no cambia en el mismo instante.
+  await expect.poll(leer).not.toBe(reposo);
+});
+
 test('un archivo que no es SVG se rechaza con aviso', async ({ page }) => {
   await page.setInputFiles('#file', {
     name: 'foto.png',
