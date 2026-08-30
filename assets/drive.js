@@ -218,6 +218,40 @@
     });
   }
 
+  // Una subcarpeta dentro de la que se esté viendo. También la crea esta app,
+  // así que el scope drive.file la alcanza igual que a la raíz.
+  function createFolder(name, parentId) {
+    var metadata = { name: name || 'Nueva carpeta', mimeType: FOLDER_MIME };
+    if (isFileId(parentId)) metadata.parents = [parentId];
+    return api('/files?fields=id', { method: 'POST', json: metadata })
+      .then(function (created) {
+        if (!created || !isFileId(created.id)) throw new Error('bad-response');
+        return created.id;
+      });
+  }
+
+  // Nombre de una carpeta a la que se entra por enlace directo, para el rastro
+  // de migas: navegando se conoce, pero al abrir /account/?id=… no.
+  function meta(fileId) {
+    if (!isFileId(fileId)) return Promise.reject(new Error('bad-id'));
+    return api('/files/' + fileId + '?fields=id,name,mimeType,shared');
+  }
+
+  function metaPublic(fileId) {
+    if (!isFileId(fileId)) return Promise.reject(new Error('bad-id'));
+    if (!canRead()) return Promise.reject(new Error('not-configured'));
+    return fetch(DRIVE + '/files/' + fileId +
+      '?fields=id,name,mimeType,shared&key=' + encodeURIComponent(CONFIG.googleApiKey))
+      .then(function (response) {
+        return readJson(response).then(function (json) {
+          if (!response.ok) throw apiError(response, json);
+          return json;
+        });
+      });
+  }
+
+  function isFolder(item) { return Boolean(item) && item.mimeType === FOLDER_MIME; }
+
   function listFolder(folderId) {
     if (!isFileId(folderId)) return Promise.reject(new Error('bad-id'));
     var q = "'" + folderId + "' in parents and trashed = false";
@@ -315,6 +349,10 @@
     unpublish: unpublish,
     download: download,
     ensureFolder: ensureFolder,
+    createFolder: createFolder,
+    isFolder: isFolder,
+    meta: meta,
+    metaPublic: metaPublic,
     listFolder: listFolder,
     listPublic: listPublic,
     fetchOwn: fetchOwn,

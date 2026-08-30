@@ -37,9 +37,13 @@ Además del enlace autocontenido, SVGshare ofrece una **vista de carpeta** contr
 el Drive de quien la usa: una carpeta `SVGshare` en su cuenta, con los SVG que
 guarde ahí. La cuota es suya; SVGshare no almacena nada.
 
-Desde esa vista se puede subir SVG, previsualizarlos, **compartir una imagen o la
-carpeta entera** con un enlace, dejar de compartirlos, borrarlos, y ver cuánto
-espacio ocupan en la cuenta.
+Desde esa vista se puede subir SVG, previsualizarlos, **crear subcarpetas** y
+navegar por ellas, **compartir una imagen o una carpeta entera** con un enlace,
+dejar de compartirlos, borrarlos, y ver cuánto espacio ocupan en la cuenta.
+
+La navegación va en la URL (`/account/?id=<folderId>`), así que recargar y el
+botón «atrás» del navegador funcionan como se espera. Compartir estando dentro de
+una subcarpeta comparte **esa**, no la raíz.
 
 ```
 autocontenido   …/#z=<datos>&n=<nombre>      largo, eterno, sin cuentas
@@ -143,6 +147,18 @@ recortaría bastante la longitud útil del enlace.
 Se omite `og:url` a propósito: algunos clientes lo usan como destino de la tarjeta, y eso
 abriría la portada en lugar del enlace compartido.
 
+## Tema
+
+Claro y oscuro, con un selector en el pie de todas las vistas: **automático**
+(sigue al sistema), claro u oscuro. La elección se guarda por navegador y se
+aplica antes del primer pintado, así que una recarga en oscuro no da un destello
+blanco. Sin `localStorage` disponible —ventana privada, almacenamiento
+bloqueado— se cae en automático sin romper nada.
+
+El área de la imagen es aparte: siempre clara, para que un SVG de tinta oscura se
+vea igual en los dos temas. En el visor hay un selector de fondo propio para
+cuando la imagen es de tinta clara.
+
 ## Longitud del enlace
 
 La app muestra en todo momento cuántos caracteres ocupa el enlace:
@@ -158,7 +174,8 @@ La app muestra en todo momento cuántos caracteres ocupa el enlace:
 ```
 index.html          # creador + visor (una sola página)
 account/index.html  # vista de carpeta contra Google Drive
-assets/style.css    # estilos, mobile-first, con modo oscuro
+assets/style.css    # estilos, mobile-first, con modo claro y oscuro
+assets/theme.js     # selector de tema (auto/claro/oscuro), sin destello
 assets/svg.js       # saneado, optimización y codificación; compartido
 assets/app.js       # creador y visor
 assets/account.js   # vista de carpeta
@@ -182,7 +199,7 @@ python3 -m http.server 8080
 
 ## Tests
 
-105 comprobaciones con Playwright sobre Chromium a 390 px. `package.json` existe
+132 comprobaciones con Playwright sobre Chromium a 390 px. `package.json` existe
 solo para esto: la web sigue sirviéndose tal cual.
 
 ```bash
@@ -198,6 +215,7 @@ npm test
 | `test/name.spec.js` | `n=` en el enlace, título, descarga, nombres hostiles |
 | `test/drive.spec.js` | el atajo de la portada y el visor de enlaces de Drive |
 | `test/account.spec.js` | la vista de carpeta entera, contra un Drive simulado con estado |
+| `test/theme.spec.js` | el selector de tema y el `<img>` sin `src` |
 | `test/inflate.spec.js` | `assets/inflate.js` contra `zlib.deflateRawSync`, con fuzzing |
 | `test/config.spec.js` | `tools/write-config.js`: escapado, avisos, recorte |
 

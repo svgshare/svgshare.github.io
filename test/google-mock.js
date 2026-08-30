@@ -41,18 +41,31 @@ async function mockGoogle(page, options = {}) {
 
   const folderId = newId('fold');
   const store = new Map();
+  store.set(folderId, {
+    id: folderId, name: 'SVGshare', parent: null, shared: false, mimeType: FOLDER_MIME
+  });
+  // Subcarpetas de partida: { name, folder: true, parentName }
+  const byName = new Map([['SVGshare', folderId]]);
   for (const file of opts.files) {
-    const id = newId('file');
+    const id = newId(file.folder ? 'fold' : 'file');
+    const parent = file.parent ? byName.get(file.parent) || folderId : folderId;
     store.set(id, {
       id,
       name: file.name,
-      content: file.content || PLAIN,
+      content: file.folder ? null : (file.content || PLAIN),
       shared: Boolean(file.shared),
-      parent: folderId,
-      mimeType: 'image/svg+xml'
+      parent,
+      mimeType: file.folder ? FOLDER_MIME : 'image/svg+xml'
     });
+    if (file.folder) byName.set(file.name, id);
   }
-  const state = { folderId, folderCreated: false, folderShared: false, store, calls: [] };
+  const state = {
+    folderId, folderCreated: false, folderShared: false, store, byName, calls: [],
+    // El store guarda también las carpetas (la raíz incluida), así que las
+    // pruebas piden por separado lo que les interesa.
+    get files() { return [...store.values()].filter((f) => f.mimeType !== FOLDER_MIME); },
+    get folders() { return [...store.values()].filter((f) => f.mimeType === FOLDER_MIME); }
+  };
 
   await page.route('**/assets/config.js', (route) => route.fulfill({
     contentType: 'application/javascript',
@@ -162,7 +175,9 @@ async function mockGoogle(page, options = {}) {
       if (method === 'DELETE') {
         if (opts.failDelete) return route.fulfill(fail(opts.failDelete, 'no se pudo borrar'));
         if (!authed) return route.fulfill(fail(401, 'Login Required'));
-        store.delete(id);
+        const doomed = [id];
+        for (const entry of store.values()) if (entry.parent === id) doomed.push(entry.id);
+        doomed.forEach((victim) => store.delete(victim));
         return route.fulfill({ status: 204, headers: CORS, body: '' });
       }
 
@@ -174,27 +189,56 @@ async function mockGoogle(page, options = {}) {
         }
         return route.fulfill({ headers: CORS, contentType: 'image/svg+xml', body: file.content });
       }
-      return route.fulfill(file ? json(file) : fail(404, 'File not found'));
+      if (!file) return route.fulfill(fail(404, 'File not found'));
+      if (!authed && !(keyed && file.shared)) return route.fulfill(fail(404, 'File not found'));
+      return route.fulfill(json({
+        id: file.id, name: file.name, mimeType: file.mimeType, shared: file.shared
+      }));
     }
 
     /* -------- listar y crear -------- */
     if (path === '/drive/v3/files') {
       if (method === 'POST') {
         if (!authed) return route.fulfill(fail(401, 'Login Required'));
-        state.folderCreated = true;
-        return route.fulfill(json({ id: folderId }));
+        const meta = request.postDataJSON() || {};
+        // La raíz solo se crea una vez; las subcarpetas son entradas nuevas.
+        if (meta.name === 'SVGshare' && !meta.parents) {
+          state.folderCreated = true;
+          if (!store.has(folderId)) {
+            store.set(folderId, {
+              id: folderId, name: 'SVGshare', parent: null, shared: false, mimeType: FOLDER_MIME
+            });
+          }
+          return route.fulfill(json({ id: folderId }));
+        }
+        const id = newId('fold');
+        store.set(id, {
+          id,
+          name: meta.name,
+          parent: (meta.parents || [])[0] || null,
+          shared: false,
+          mimeType: meta.mimeType || FOLDER_MIME
+        });
+        byName.set(meta.name, id);
+        return route.fulfill(json({ id }));
       }
       if (opts.failList) return route.fulfill(fail(opts.failList, 'no se pudo listar'));
 
       const q = url.searchParams.get('q') || '';
       // Búsqueda de la carpeta por nombre
-      if (q.includes(FOLDER_MIME)) {
+      if (q.includes(FOLDER_MIME) && q.includes("name = 'SVGshare'")) {
         if (!authed) return route.fulfill(fail(401, 'Login Required'));
-        return route.fulfill(json({ files: opts.folderMissing ? [] : [{ id: folderId, name: 'SVGshare' }] }));
+        if (opts.folderMissing) {
+          store.delete(folderId);
+          return route.fulfill(json({ files: [] }));
+        }
+        return route.fulfill(json({ files: [{ id: folderId, name: 'SVGshare' }] }));
       }
       // Contenido de una carpeta
       const parent = (q.match(/'([^']+)' in parents/) || [])[1];
-      if (!authed && !(keyed && parent === folderId && state.folderShared)) {
+      const folder = store.get(parent);
+      const publicFolder = parent === folderId ? state.folderShared : Boolean(folder && folder.shared);
+      if (!authed && !(keyed && publicFolder)) {
         return route.fulfill(fail(404, 'File not found'));
       }
       const files = [...store.values()]
@@ -202,7 +246,7 @@ async function mockGoogle(page, options = {}) {
         .map((f) => ({
           id: f.id,
           name: f.name,
-          size: String(f.content.length),
+          size: f.mimeType === FOLDER_MIME ? undefined : String(f.content.length),
           modifiedTime: '2026-08-29T21:00:00.000Z',
           shared: f.shared,
           mimeType: f.mimeType

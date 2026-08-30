@@ -100,9 +100,13 @@ test('cada tarjeta muestra nombre, peso y previsualización', async ({ page }) =
   await signIn(page);
 
   await expect(page.locator('.tile')).toHaveCount(2);
-  await expect(page.locator('.tile-name').first()).toHaveText('logo.svg');
+  // Orden alfabético dentro de cada tipo.
+  await expect(page.locator('.tile-name')).toHaveText(['icono.svg', 'logo.svg']);
   await expect(page.locator('.tile-size').first()).toContainText('B');
 
+  // La lista solo trae metadatos: cada previsualización se pide aparte y su
+  // src llega después de que la tarjeta exista.
+  await expect(page.locator('.tile-art img').first()).toHaveAttribute('src', /^data:/);
   const src = await page.locator('.tile-art img').first().getAttribute('src');
   expect(src).toMatch(/^data:image\/svg\+xml;base64,/);
   expect(Buffer.from(src.split(',')[1], 'base64').toString('utf8')).toContain('<rect');
@@ -144,6 +148,7 @@ test('el SVG que llega de Drive pasa por el saneador antes de pintarse', async (
   await page.goto('/account/');
   await signIn(page);
 
+  await expect(page.locator('.tile-art img')).toHaveAttribute('src', /^data:/);
   const src = await page.locator('.tile-art img').getAttribute('src');
   const svg = Buffer.from(src.split(',')[1], 'base64').toString('utf8');
   expect(svg).not.toContain('script');
@@ -159,7 +164,7 @@ test('cada tarjeta enlaza al visor del fichero', async ({ page }) => {
   const href = await page.locator('.tile-open').getAttribute('href');
   const url = new URL(href);
   expect(url.pathname).toBe('/');
-  expect(url.searchParams.get('d')).toBe([...state.store.keys()][0]);
+  expect(url.searchParams.get('d')).toBe(state.files[0].id);
   expect(url.searchParams.get('n')).toBe('logo.svg');
 });
 
@@ -178,7 +183,7 @@ test('subir un SVG lo guarda en la carpeta, ya saneado', async ({ page }) => {
   });
   await expect(page.locator('.tile')).toHaveCount(1);
 
-  const stored = [...state.store.values()][0];
+  const stored = state.files[0];
   expect(stored.name).toBe('nuevo.svg');
   expect(stored.parent).toBe(state.folderId);
   expect(stored.content).not.toContain('script');
@@ -193,7 +198,7 @@ test('un archivo que no es SVG se rechaza al subir', async ({ page }) => {
     name: 'foto.png', mimeType: 'image/png', buffer: Buffer.from('no soy svg')
   });
   await expect(page.locator('#toast')).toContainText('no es un SVG');
-  expect(state.store.size).toBe(0);
+  expect(state.files).toHaveLength(0);
 });
 
 test('un fallo al subir se explica y no deja la vista rota', async ({ page }) => {
@@ -221,9 +226,9 @@ test('compartir una imagen la hace pública y da el enlace corto', async ({ page
   const link = page.locator('#shareLink');
   await expect(link).not.toHaveValue('Preparando…');
   const url = new URL(await link.inputValue());
-  expect(url.searchParams.get('d')).toBe([...state.store.keys()][0]);
+  expect(url.searchParams.get('d')).toBe(state.files[0].id);
   expect(url.searchParams.get('n')).toBe('logo.svg');
-  expect([...state.store.values()][0].shared).toBe(true);
+  expect(state.files[0].shared).toBe(true);
   await expect(page.locator('.tile-size')).toContainText('compartido');
 });
 
@@ -251,7 +256,7 @@ test('dejar de compartir revoca el permiso', async ({ page }) => {
   await page.locator('#btnUnshare').click();
 
   await expect(page.locator('#toast')).toContainText('Ya no se comparte');
-  expect([...state.store.values()][0].shared).toBe(false);
+  expect(state.files[0].shared).toBe(false);
   await expect(page.locator('.tile-size')).not.toContainText('compartido');
 });
 
@@ -275,7 +280,7 @@ test('borrar quita el fichero de Drive y de la vista, tras confirmar', async ({ 
   await page.locator('.tile').first().locator('.is-danger').click();
 
   await expect(page.locator('.tile')).toHaveCount(1);
-  expect(state.store.size).toBe(1);
+  expect(state.files).toHaveLength(1);
 });
 
 test('cancelar la confirmación no borra nada', async ({ page }) => {
@@ -287,7 +292,161 @@ test('cancelar la confirmación no borra nada', async ({ page }) => {
   await page.locator('.is-danger').click();
 
   await expect(page.locator('.tile')).toHaveCount(1);
-  expect(state.store.size).toBe(1);
+  expect(state.files).toHaveLength(1);
+});
+
+/* --------------------------------------------------------------- carpetas */
+
+test('crear una carpeta la añade a la vista', async ({ page }) => {
+  const state = await mockGoogle(page);
+  await page.goto('/account/');
+  await signIn(page);
+
+  page.on('dialog', (dialog) => dialog.accept('Logos'));
+  await page.locator('#btnNewFolder').click();
+
+  await expect(page.locator('.tile.is-folder')).toHaveCount(1);
+  await expect(page.locator('.tile-name')).toHaveText('Logos');
+  await expect(page.locator('.tile-size')).toHaveText('carpeta');
+  expect(state.folders.some((f) => f.name === 'Logos' && f.parent === state.folderId)).toBe(true);
+});
+
+test('cancelar el nombre no crea nada', async ({ page }) => {
+  const state = await mockGoogle(page);
+  await page.goto('/account/');
+  await signIn(page);
+
+  page.on('dialog', (dialog) => dialog.dismiss());
+  await page.locator('#btnNewFolder').click();
+  await expect(page.locator('.tile')).toHaveCount(0);
+  expect(state.folders).toHaveLength(1);   // solo la raíz
+});
+
+test('un nombre vacío se rechaza', async ({ page }) => {
+  const state = await mockGoogle(page);
+  await page.goto('/account/');
+  await signIn(page);
+
+  page.on('dialog', (dialog) => dialog.accept('   '));
+  await page.locator('#btnNewFolder').click();
+  await expect(page.locator('#toast')).toContainText('Hace falta un nombre');
+  expect(state.folders).toHaveLength(1);
+});
+
+test('las carpetas se listan antes que las imágenes', async ({ page }) => {
+  await mockGoogle(page, {
+    files: [{ name: 'zeta.svg' }, { name: 'Logos', folder: true }, { name: 'alfa.svg' }]
+  });
+  await page.goto('/account/');
+  await signIn(page);
+  await expect(page.locator('.tile-name')).toHaveText(['Logos', 'alfa.svg', 'zeta.svg']);
+});
+
+test('entrar en una carpeta muestra su contenido y las migas', async ({ page }) => {
+  await mockGoogle(page, {
+    files: [
+      { name: 'Logos', folder: true },
+      { name: 'raiz.svg' },
+      { name: 'dentro.svg', parent: 'Logos' }
+    ]
+  });
+  await page.goto('/account/');
+  await signIn(page);
+  await expect(page.locator('#crumbs')).toBeHidden();
+
+  await page.locator('.tile.is-folder .tile-open').click();
+
+  await expect(page.locator('.tile-name')).toHaveText('dentro.svg');
+  await expect(page.locator('#crumbs')).toBeVisible();
+  await expect(page.locator('#crumbs')).toContainText('SVGshare');
+  await expect(page.locator('#crumbs .here')).toHaveText('Logos');
+  expect(new URL(page.url()).searchParams.get('id')).toBeTruthy();
+});
+
+test('las migas vuelven a la raíz', async ({ page }) => {
+  await mockGoogle(page, {
+    files: [{ name: 'Logos', folder: true }, { name: 'raiz.svg' }]
+  });
+  await page.goto('/account/');
+  await signIn(page);
+  await page.locator('.tile.is-folder .tile-open').click();
+  await expect(page.locator('#crumbs .here')).toHaveText('Logos');
+
+  await page.locator('#crumbs a').click();
+  await expect(page.locator('.tile-name')).toHaveText(['Logos', 'raiz.svg']);
+  await expect(page.locator('#crumbs')).toBeHidden();
+});
+
+test('el botón atrás del navegador sale de la carpeta', async ({ page }) => {
+  await mockGoogle(page, {
+    files: [{ name: 'Logos', folder: true }, { name: 'raiz.svg' }]
+  });
+  await page.goto('/account/');
+  await signIn(page);
+  await page.locator('.tile.is-folder .tile-open').click();
+  await expect(page.locator('#crumbs .here')).toHaveText('Logos');
+
+  await page.goBack();
+  await expect(page.locator('.tile-name')).toHaveText(['Logos', 'raiz.svg']);
+});
+
+test('un enlace directo a una subcarpeta la abre con su rastro', async ({ page }) => {
+  const state = await mockGoogle(page, {
+    files: [{ name: 'Logos', folder: true }, { name: 'dentro.svg', parent: 'Logos' }]
+  });
+  const sub = state.folders.find((f) => f.name === 'Logos');
+  await page.goto(`/account/?id=${sub.id}`);
+  await signIn(page);
+
+  await expect(page.locator('.tile-name')).toHaveText('dentro.svg');
+  await expect(page.locator('#crumbs .here')).toHaveText('Logos');
+});
+
+test('subir dentro de una carpeta la usa como destino', async ({ page }) => {
+  const state = await mockGoogle(page, { files: [{ name: 'Logos', folder: true }] });
+  await page.goto('/account/');
+  await signIn(page);
+  await page.locator('.tile.is-folder .tile-open').click();
+  await expect(page.locator('#crumbs .here')).toHaveText('Logos');
+
+  await page.setInputFiles('#file', {
+    name: 'nuevo.svg', mimeType: 'image/svg+xml', buffer: Buffer.from(PLAIN)
+  });
+  await expect(page.locator('.tile')).toHaveCount(1);
+
+  const sub = state.folders.find((f) => f.name === 'Logos');
+  expect(state.files[0].parent).toBe(sub.id);
+});
+
+test('compartir estando dentro comparte esa subcarpeta, no la raíz', async ({ page }) => {
+  const state = await mockGoogle(page, { files: [{ name: 'Logos', folder: true }] });
+  await page.goto('/account/');
+  await signIn(page);
+  await page.locator('.tile.is-folder .tile-open').click();
+  await expect(page.locator('#crumbs .here')).toHaveText('Logos');
+
+  await page.locator('#btnShareFolder').click();
+  await expect(page.locator('#shareLink')).not.toHaveValue('Preparando…');
+
+  const sub = state.folders.find((f) => f.name === 'Logos');
+  expect(new URL(await page.locator('#shareLink').inputValue()).searchParams.get('f')).toBe(sub.id);
+  expect(state.folderShared).toBe(false);
+});
+
+test('borrar una carpeta avisa de que se lleva el contenido', async ({ page }) => {
+  const state = await mockGoogle(page, {
+    files: [{ name: 'Logos', folder: true }, { name: 'dentro.svg', parent: 'Logos' }]
+  });
+  await page.goto('/account/');
+  await signIn(page);
+
+  let question = '';
+  page.on('dialog', (dialog) => { question = dialog.message(); dialog.accept(); });
+  await page.locator('.tile.is-folder .is-danger').click();
+
+  await expect(page.locator('.tile')).toHaveCount(0);
+  expect(question).toContain('todo su contenido');
+  expect(state.files).toHaveLength(0);
 });
 
 /* ------------------------------------------------------------------ cuota */
@@ -372,10 +531,15 @@ async function mockGoogleShared(guest, state) {
     const parent = (q.match(/'([^']+)' in parents/) || [])[1];
 
     if (url.pathname === '/drive/v3/files' && parent === state.folderId && state.folderShared) {
-      const files = [...state.store.values()].map((f) => ({
-        id: f.id, name: f.name, size: String(f.content.length),
-        shared: f.shared, mimeType: f.mimeType
-      }));
+      const files = [...state.store.values()]
+        .filter((f) => f.parent === parent)
+        .map((f) => ({
+          id: f.id,
+          name: f.name,
+          size: f.mimeType === 'application/vnd.google-apps.folder' ? undefined : String(f.content.length),
+          shared: f.shared,
+          mimeType: f.mimeType
+        }));
       return route.fulfill({ headers: cors, contentType: 'application/json', body: JSON.stringify({ files }) });
     }
     const one = url.pathname.match(/^\/drive\/v3\/files\/([^/]+)$/);
